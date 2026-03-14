@@ -4722,6 +4722,9 @@ pub fn finalize(self: *Config) !void {
 
     // Migrate legacy quick-terminal-* keys into a "quick" popup profile
     try self.migrateQuickTerminalToPopup(alloc);
+
+    // Generate keybindings from popup profiles that specify a keybind field
+    try self.synthesizePopupKeybinds(alloc);
 }
 
 /// Synthesize a "quick" popup profile from legacy quick-terminal-* keys.
@@ -4844,6 +4847,70 @@ fn quickSizeToDimension(size: QuickTerminalSize.Size) popupmod.Dimension {
         ),
         .pixels => |v| popupmod.Dimension.initPixels(v),
     };
+}
+
+/// Synthesize keybindings from popup profiles.
+///
+/// For each popup that specifies a `keybind` field, this constructs a
+/// `toggle_popup:<name>` binding and inserts it into the default keybind
+/// set — but only if the trigger is not already claimed by an explicit
+/// `keybind = ...` line. Explicit bindings always win.
+///
+/// Called during finalize(), after migrateQuickTerminalToPopup().
+pub fn synthesizePopupKeybinds(self: *Config, alloc: Allocator) !void {
+    for (self.popup.names.items, self.popup.profiles.items) |name, profile| {
+        const keybind_str = profile.keybind orelse continue;
+
+        // Build the full binding string, e.g. "ctrl+grave_accent=toggle_popup:quick"
+        const binding_str = try std.fmt.allocPrint(
+            alloc,
+            "{s}=toggle_popup:{s}",
+            .{ keybind_str, name },
+        );
+
+        // Parse the binding string to extract the trigger so we can
+        // check whether it's already bound.
+        var parser = inputpkg.Binding.Parser.init(binding_str) catch |err| {
+            log.warn(
+                "popup '{s}': invalid keybind '{s}': {}",
+                .{ name, keybind_str, err },
+            );
+            continue;
+        };
+
+        const elem = parser.next() catch |err| {
+            log.warn(
+                "popup '{s}': failed to parse keybind '{s}': {}",
+                .{ name, keybind_str, err },
+            );
+            continue;
+        };
+
+        const trigger = switch (elem orelse continue) {
+            .binding => |b| b.trigger,
+            .leader => |t| t,
+            .chain => continue, // chains are not valid for popup keybinds
+        };
+
+        // If this trigger is already bound by an explicit keybind line,
+        // the explicit binding wins — skip synthesis.
+        if (self.keybind.set.get(trigger) != null) {
+            log.info(
+                "popup '{s}': keybind '{s}' already bound, skipping synthesis",
+                .{ name, keybind_str },
+            );
+            continue;
+        }
+
+        // Insert the synthesized binding into the default set.
+        self.keybind.set.parseAndPut(alloc, binding_str) catch |err| {
+            log.warn(
+                "popup '{s}': failed to add keybind '{s}': {}",
+                .{ name, keybind_str, err },
+            );
+            continue;
+        };
+    }
 }
 
 /// Callback for src/cli/args.zig to allow us to handle special cases
