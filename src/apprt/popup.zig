@@ -1,0 +1,120 @@
+const std = @import("std");
+
+/// Dimension: either absolute pixels or a percentage of screen.
+/// Parsed from strings like "400" (pixels) or "80%" (percentage).
+pub const Dimension = struct {
+    value: u32,
+    unit: Unit,
+
+    pub const Unit = enum { pixels, percent };
+
+    pub fn initPixels(v: u32) Dimension {
+        return .{ .value = v, .unit = .pixels };
+    }
+
+    pub fn initPercent(v: u32) Dimension {
+        return .{ .value = v, .unit = .percent };
+    }
+
+    /// Parse from a string like "400" or "80%".
+    /// Conforms to the parseCLI convention used by the config framework.
+    pub fn parseCLI(input: ?[]const u8) !Dimension {
+        const s = input orelse return error.ValueRequired;
+        if (s.len == 0) return error.InvalidValue;
+        if (s[s.len - 1] == '%') {
+            const num = std.fmt.parseInt(u32, s[0 .. s.len - 1], 10) catch
+                return error.InvalidValue;
+            if (num == 0 or num > 100) return error.InvalidValue;
+            return initPercent(num);
+        }
+        const num = std.fmt.parseInt(u32, s, 10) catch
+            return error.InvalidValue;
+        return initPixels(num);
+    }
+};
+
+pub const Position = enum {
+    center,
+    top,
+    bottom,
+    left,
+    right,
+};
+
+pub const Anchor = enum {
+    top_left,
+    top_right,
+    bottom_left,
+    bottom_right,
+    center,
+};
+
+/// Profile definition for a named popup terminal.
+/// Field names are designed to work with the parseAutoStruct framework
+/// (colon-delimited key:value pairs).
+pub const PopupProfile = struct {
+    position: Position = .center,
+    anchor: ?Anchor = null,
+    x: ?Dimension = null,
+    y: ?Dimension = null,
+    width: Dimension = Dimension.initPercent(80),
+    height: Dimension = Dimension.initPercent(80),
+    keybind: ?[]const u8 = null,
+    command: ?[]const u8 = null,
+    autohide: bool = true,
+    persist: bool = true,
+};
+
+/// Validate a popup profile name.
+/// Allowed characters: [a-zA-Z0-9_-], must be non-empty.
+pub fn isValidName(name: []const u8) bool {
+    if (name.len == 0) return false;
+    for (name) |c| {
+        switch (c) {
+            'a'...'z', 'A'...'Z', '0'...'9', '_', '-' => {},
+            else => return false,
+        }
+    }
+    return true;
+}
+
+test "Dimension: parse pixels" {
+    const d = try Dimension.parseCLI("400");
+    try std.testing.expectEqual(@as(u32, 400), d.value);
+    try std.testing.expectEqual(Dimension.Unit.pixels, d.unit);
+}
+
+test "Dimension: parse percent" {
+    const d = try Dimension.parseCLI("80%");
+    try std.testing.expectEqual(@as(u32, 80), d.value);
+    try std.testing.expectEqual(Dimension.Unit.percent, d.unit);
+}
+
+test "Dimension: reject zero percent" {
+    try std.testing.expectError(error.InvalidValue, Dimension.parseCLI("0%"));
+}
+
+test "Dimension: reject over 100 percent" {
+    try std.testing.expectError(error.InvalidValue, Dimension.parseCLI("101%"));
+}
+
+test "Dimension: reject empty" {
+    try std.testing.expectError(error.InvalidValue, Dimension.parseCLI(""));
+}
+
+test "Dimension: reject null" {
+    try std.testing.expectError(error.ValueRequired, Dimension.parseCLI(null));
+}
+
+test "isValidName: valid names" {
+    try std.testing.expect(isValidName("quick"));
+    try std.testing.expect(isValidName("my-popup"));
+    try std.testing.expect(isValidName("calc_2"));
+}
+
+test "isValidName: invalid names" {
+    try std.testing.expect(!isValidName(""));
+    try std.testing.expect(!isValidName("bad name"));
+    try std.testing.expect(!isValidName("bad:name"));
+    try std.testing.expect(!isValidName("bad@name"));
+}
