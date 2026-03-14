@@ -1603,7 +1603,19 @@ pub const Surface = extern struct {
         if (ext.getAncestor(Window, self.as(gtk.Widget))) |window| {
             try window.winproto().addSubprocessEnv(&env);
 
-            if (window.isQuickTerminal()) {
+            // Set GHOSTTY_POPUP=<name> for all popup windows
+            if (window.isPopup()) {
+                if (window.popupProfileName()) |name| {
+                    try env.put("GHOSTTY_POPUP", name);
+
+                    // Backward compat: also set GHOSTTY_QUICK_TERMINAL=1
+                    // for the "quick" profile so existing scripts still work.
+                    if (std.mem.eql(u8, name, "quick")) {
+                        try env.put("GHOSTTY_QUICK_TERMINAL", "1");
+                    }
+                }
+            } else if (window.isQuickTerminal()) {
+                // Legacy quick terminal window (not created via popup system)
                 try env.put("GHOSTTY_QUICK_TERMINAL", "1");
             }
         }

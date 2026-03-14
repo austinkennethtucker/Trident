@@ -40,6 +40,7 @@ const Tab = @import("tab.zig").Tab;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
+const PopupManager = @import("../PopupManager.zig").PopupManager;
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
@@ -175,6 +176,9 @@ pub const Application = extern struct {
 
         /// The global shortcut logic.
         global_shortcuts: *GlobalShortcuts,
+
+        /// Manager for popup terminal windows.
+        popup_manager: ?PopupManager = null,
 
         /// This is set to true so long as we request a window exactly
         /// once. This prevents quitting the app before we've shown one
@@ -399,6 +403,13 @@ pub const Application = extern struct {
             .saved_language = saved_language,
         };
 
+        // Initialize the popup manager from the config
+        {
+            var pm = PopupManager.init(alloc);
+            pm.loadConfig(&config);
+            priv.popup_manager = pm;
+        }
+
         // Signals
         _ = gobject.Object.signals.notify.connect(
             self,
@@ -430,6 +441,10 @@ pub const Application = extern struct {
     pub fn deinit(self: *Self) void {
         const alloc = self.allocator();
         const priv: *Private = self.private();
+        if (priv.popup_manager) |*pm| {
+            pm.hideAll();
+            pm.deinit();
+        }
         priv.config.unref();
         priv.winproto.deinit(alloc);
         priv.global_shortcuts.unref();
@@ -751,6 +766,21 @@ pub const Application = extern struct {
             .toggle_maximize => Action.toggleMaximize(target),
             .toggle_fullscreen => Action.toggleFullscreen(target),
             .toggle_quick_terminal => return Action.toggleQuickTerminal(self),
+            .toggle_popup => |v| {
+                const priv = self.private();
+                if (priv.popup_manager) |*pm| return pm.toggle(v.name);
+                return false;
+            },
+            .show_popup => |v| {
+                const priv = self.private();
+                if (priv.popup_manager) |*pm| return pm.show(v.name);
+                return false;
+            },
+            .hide_popup => |v| {
+                const priv = self.private();
+                if (priv.popup_manager) |*pm| return pm.hide(v.name);
+                return false;
+            },
             .toggle_tab_overview => return Action.toggleTabOverview(target),
             .toggle_window_decorations => return Action.toggleWindowDecorations(target),
             .toggle_command_palette => return Action.toggleCommandPalette(target),
@@ -2612,16 +2642,17 @@ const Action = struct {
     }
 
     pub fn toggleQuickTerminal(self: *Application) bool {
-        // If we already have a quick terminal window, we just toggle the
-        // visibility of it.
+        // Delegate to the popup manager using the "quick" profile name.
+        const priv = self.private();
+        if (priv.popup_manager) |*pm| return pm.toggle("quick");
+
+        // Fallback: if popup manager isn't initialized, use legacy path.
         if (getQuickTerminalWindow()) |win| {
             win.toggleVisibility();
             return true;
         }
 
-        // If we don't support quick terminals then we do nothing.
-        const priv = self.private();
-        if (!priv.winproto.supportsQuickTerminal()) return false;
+        if (!priv.winproto.supportsPopup()) return false;
 
         // Create our new window as a quick terminal
         const win = gobject.ext.newInstance(Window, .{
