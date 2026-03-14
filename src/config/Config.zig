@@ -4719,6 +4719,131 @@ pub fn finalize(self: *Config) !void {
 
     // Finalize key remapping set for efficient lookups
     self.@"key-remap".finalize();
+
+    // Migrate legacy quick-terminal-* keys into a "quick" popup profile
+    try self.migrateQuickTerminalToPopup(alloc);
+}
+
+/// Synthesize a "quick" popup profile from legacy quick-terminal-* keys.
+/// Called during config finalization, after all fields are parsed.
+///
+/// If a popup named "quick" already exists (i.e. the user explicitly
+/// defined one via the `popup` config key), legacy keys are ignored.
+/// Otherwise, if any quick-terminal-* key was set to a non-default
+/// value, we build a PopupProfile from those legacy values and append
+/// it to `self.popup`.
+///
+/// Platform-specific keys (screen, space-behavior, animation-duration,
+/// keyboard-interactivity, gtk-layer, gtk-namespace) are NOT migrated;
+/// they remain legacy-only for now.
+pub fn migrateQuickTerminalToPopup(self: *Config, alloc: Allocator) !void {
+    // If a "quick" popup was explicitly defined, legacy keys are ignored.
+    if (self.popup.get("quick") != null) return;
+
+    // Determine whether any legacy quick-terminal-* key was changed
+    // from its default value. We only check the keys we actually migrate.
+    const default_position: QuickTerminalPosition = .top;
+    const default_autohide: bool = switch (builtin.os.tag) {
+        .linux => false,
+        .macos => true,
+        else => false,
+    };
+    const position_changed = self.@"quick-terminal-position" != default_position;
+    const autohide_changed = self.@"quick-terminal-autohide" != default_autohide;
+    const size_changed = (self.@"quick-terminal-size".primary != null) or
+        (self.@"quick-terminal-size".secondary != null);
+
+    // If nothing changed, no migration needed.
+    if (!position_changed and !autohide_changed and !size_changed) return;
+
+    log.warn(
+        "quick-terminal-* config keys are deprecated; " ++
+            "use 'popup = quick:...' instead. " ++
+            "A 'quick' popup profile has been synthesized from your legacy settings.",
+        .{},
+    );
+
+    // Build the popup profile from legacy values.
+    var profile: popupmod.PopupProfile = .{};
+
+    // Map position (enum values match 1:1)
+    profile.position = switch (self.@"quick-terminal-position") {
+        .top => .top,
+        .bottom => .bottom,
+        .left => .left,
+        .right => .right,
+        .center => .center,
+    };
+
+    // Map autohide
+    profile.autohide = self.@"quick-terminal-autohide";
+
+    // Map size to width/height based on position.
+    //
+    // QuickTerminalSize uses "primary" for the axis that the terminal
+    // slides in from (height for top/bottom, width for left/right) and
+    // "secondary" for the cross-axis. Non-center positions maximize the
+    // cross-axis by default.
+    //
+    // For center, the axis meaning is orientation-dependent at runtime,
+    // so we apply primary to both width and height when only primary is
+    // set, and use primary->width / secondary->height when both are set.
+    const size = self.@"quick-terminal-size";
+    switch (self.@"quick-terminal-position") {
+        .top, .bottom => {
+            // primary -> height, secondary -> width
+            if (size.primary) |p| {
+                profile.height = quickSizeToDimension(p);
+            }
+            if (size.secondary) |s| {
+                profile.width = quickSizeToDimension(s);
+            } else {
+                // Edge positions maximize the cross-axis
+                profile.width = popupmod.Dimension.initPercent(100);
+            }
+        },
+        .left, .right => {
+            // primary -> width, secondary -> height
+            if (size.primary) |p| {
+                profile.width = quickSizeToDimension(p);
+            }
+            if (size.secondary) |s| {
+                profile.height = quickSizeToDimension(s);
+            } else {
+                // Edge positions maximize the cross-axis
+                profile.height = popupmod.Dimension.initPercent(100);
+            }
+        },
+        .center => {
+            // For center, primary/secondary axis depends on monitor
+            // orientation which we can't know at config time. Apply
+            // primary to both dimensions as a reasonable approximation.
+            if (size.primary) |p| {
+                const dim = quickSizeToDimension(p);
+                profile.width = dim;
+                profile.height = dim;
+            }
+            if (size.secondary) |s| {
+                // If both are specified, treat primary as width and
+                // secondary as height (landscape assumption).
+                profile.height = quickSizeToDimension(s);
+            }
+        },
+    }
+
+    const name_z = try alloc.dupeZ(u8, "quick");
+    try self.popup.names.append(alloc, name_z);
+    try self.popup.profiles.append(alloc, profile);
+}
+
+/// Convert a legacy QuickTerminalSize.Size to a popup Dimension.
+fn quickSizeToDimension(size: QuickTerminalSize.Size) popupmod.Dimension {
+    return switch (size) {
+        .percentage => |v| popupmod.Dimension.initPercent(
+            @intFromFloat(std.math.clamp(v, 1.0, 100.0)),
+        ),
+        .pixels => |v| popupmod.Dimension.initPixels(v),
+    };
 }
 
 /// Callback for src/cli/args.zig to allow us to handle special cases
