@@ -986,8 +986,6 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func toggleQuickTerminal(_ sender: Any) {
-        quickController.toggle()
-        // Also toggle through PopupManager so the popup system stays in sync.
         popupManager.toggle("quick")
     }
 
