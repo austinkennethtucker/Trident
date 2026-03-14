@@ -405,6 +405,9 @@ pub const Window = struct {
     // TODO: Parameterize this to read position/size from the popup profile
     // instead of global config. For v1, this reads from global config which
     // works correctly for the "quick" profile.
+    // TODO: Once parameterized, log warnings when a popup profile sets `x`,
+    // `y`, or `anchor` properties — these are not supported on Wayland
+    // (layer-shell only supports edge anchoring via quick-terminal-position).
     fn syncPopup(self: *Window) !void {
         const window = self.apprt_window.as(gtk.Window);
         const config = if (self.apprt_window.getConfig()) |v|
