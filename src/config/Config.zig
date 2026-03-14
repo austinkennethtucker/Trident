@@ -4858,6 +4858,25 @@ fn quickSizeToDimension(size: QuickTerminalSize.Size) popupmod.Dimension {
 ///
 /// Called during finalize(), after migrateQuickTerminalToPopup().
 pub fn synthesizePopupKeybinds(self: *Config, alloc: Allocator) !void {
+    // We use a two-pass approach to get the correct precedence:
+    //   1. Collect popup bindings into an intermediate list where the
+    //      LAST popup profile with a given trigger wins (overwrites).
+    //   2. Insert into the keybind set only if the trigger is NOT
+    //      already bound (i.e., explicit `keybind = ...` lines win).
+    //
+    // This avoids the bug where the first popup with a given trigger
+    // would win among popups, because the live set was checked during
+    // iteration and earlier popup bindings were already inserted.
+    const PopupBind = struct {
+        trigger: inputpkg.Binding.Trigger,
+        binding_str: []const u8,
+        name: []const u8,
+        keybind_str: []const u8,
+    };
+
+    var popup_binds: std.ArrayListUnmanaged(PopupBind) = .empty;
+
+    // First pass: collect all popup bindings; last definition wins.
     for (self.popup.names.items, self.popup.profiles.items) |name, profile| {
         const keybind_str = profile.keybind orelse continue;
 
@@ -4892,21 +4911,47 @@ pub fn synthesizePopupKeybinds(self: *Config, alloc: Allocator) !void {
             .chain => continue, // chains are not valid for popup keybinds
         };
 
-        // If this trigger is already bound by an explicit keybind line,
-        // the explicit binding wins — skip synthesis.
-        if (self.keybind.set.get(trigger) != null) {
+        // If this trigger already exists in our collected popup bindings,
+        // overwrite it so the last popup definition wins.
+        var found = false;
+        for (popup_binds.items) |*pb| {
+            if (pb.trigger.foldedEqual(trigger)) {
+                pb.* = .{
+                    .trigger = trigger,
+                    .binding_str = binding_str,
+                    .name = name,
+                    .keybind_str = keybind_str,
+                };
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            try popup_binds.append(alloc, .{
+                .trigger = trigger,
+                .binding_str = binding_str,
+                .name = name,
+                .keybind_str = keybind_str,
+            });
+        }
+    }
+
+    // Second pass: insert collected popup bindings into the keybind set.
+    // Explicit user keybinds (already in the set) take precedence.
+    for (popup_binds.items) |pb| {
+        if (self.keybind.set.get(pb.trigger) != null) {
             log.info(
                 "popup '{s}': keybind '{s}' already bound, skipping synthesis",
-                .{ name, keybind_str },
+                .{ pb.name, pb.keybind_str },
             );
             continue;
         }
 
         // Insert the synthesized binding into the default set.
-        self.keybind.set.parseAndPut(alloc, binding_str) catch |err| {
+        self.keybind.set.parseAndPut(alloc, pb.binding_str) catch |err| {
             log.warn(
                 "popup '{s}': failed to add keybind '{s}': {}",
-                .{ name, keybind_str, err },
+                .{ pb.name, pb.keybind_str, err },
             );
             continue;
         };
