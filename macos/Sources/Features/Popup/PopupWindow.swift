@@ -36,6 +36,17 @@ class PopupWindow: NSPanel {
         hidesOnDeactivate = false
         isMovableByWindowBackground = true
         level = .floating
+
+        // Rounded corners: make the window background transparent and
+        // clip the content view to a rounded rect.
+        backgroundColor = .clear
+        isOpaque = false
+        if let contentView = contentView {
+            contentView.wantsLayer = true
+            contentView.layer?.cornerRadius = 12
+            contentView.layer?.cornerCurve = .continuous
+            contentView.layer?.masksToBounds = true
+        }
     }
 
     @available(*, unavailable)
