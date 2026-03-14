@@ -14,7 +14,10 @@ class PopupController: BaseTerminalController {
     /// Lightweight value type holding the resolved configuration for one
     /// popup profile.  Defaults match a reasonable center-screen popup.
     struct PopupProfileConfig {
-        var position: String = "center"    // top, bottom, left, right, center
+        enum Position: String {
+            case center, top, bottom, left, right
+        }
+        var position: Position = .center
         var widthPercent: Int = 80
         var heightPercent: Int = 80
         var autohide: Bool = true
@@ -42,19 +45,9 @@ class PopupController: BaseTerminalController {
         self.profileName = name
         self.profileConfig = config
 
-        // Build an optional base surface configuration (e.g. custom command).
-        var baseConfig = Ghostty.SurfaceConfiguration()
-        baseConfig.environmentVariables["GHOSTTY_POPUP"] = name
-        if name == "quick" {
-            baseConfig.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
-        }
-        if let cmd = config.command, !cmd.isEmpty {
-            baseConfig.command = cmd
-        }
-
         // Start with an empty surface tree — the terminal process is
         // created lazily on first show(), same as QuickTerminalController.
-        super.init(ghosttyApp, baseConfig: baseConfig, surfaceTree: .init())
+        super.init(ghosttyApp, baseConfig: Ghostty.SurfaceConfiguration(), surfaceTree: .init())
 
         // Create the window programmatically (no XIB).
         let window = PopupWindow(
@@ -105,16 +98,7 @@ class PopupController: BaseTerminalController {
 
         // Lazily create the terminal surface on first show.
         if surfaceTree.isEmpty, let app = ghostty.app {
-            var config = Ghostty.SurfaceConfiguration()
-            config.environmentVariables["GHOSTTY_POPUP"] = profileName
-            if profileName == "quick" {
-                config.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
-            }
-            if let cmd = profileConfig.command, !cmd.isEmpty {
-                config.command = cmd
-            }
-
-            let view = Ghostty.SurfaceView(app, baseConfig: config)
+            let view = Ghostty.SurfaceView(app, baseConfig: makeSurfaceConfig())
             surfaceTree = SplitTree(view: view)
             focusedSurface = view
         }
@@ -220,6 +204,21 @@ class PopupController: BaseTerminalController {
         }
     }
 
+    // MARK: - Private Helpers
+
+    /// Build the surface configuration used when lazily creating the terminal.
+    private func makeSurfaceConfig() -> Ghostty.SurfaceConfiguration {
+        var config = Ghostty.SurfaceConfiguration()
+        config.environmentVariables["GHOSTTY_POPUP"] = profileName
+        if profileName == PopupManager.quickProfileName {
+            config.environmentVariables["GHOSTTY_QUICK_TERMINAL"] = "1"
+        }
+        if let cmd = profileConfig.command, !cmd.isEmpty {
+            config.command = cmd
+        }
+        return config
+    }
+
     // MARK: - Window Positioning
 
     private func positionWindow() {
@@ -232,19 +231,19 @@ class PopupController: BaseTerminalController {
         var rect = NSRect(x: 0, y: 0, width: width, height: height)
 
         switch profileConfig.position {
-        case "top":
+        case .top:
             rect.origin.x = frame.origin.x + (frame.width - width) / 2
             rect.origin.y = frame.origin.y + frame.height - height
-        case "bottom":
+        case .bottom:
             rect.origin.x = frame.origin.x + (frame.width - width) / 2
             rect.origin.y = frame.origin.y
-        case "left":
+        case .left:
             rect.origin.x = frame.origin.x
             rect.origin.y = frame.origin.y + (frame.height - height) / 2
-        case "right":
+        case .right:
             rect.origin.x = frame.origin.x + frame.width - width
             rect.origin.y = frame.origin.y + (frame.height - height) / 2
-        default: // center
+        case .center:
             rect.origin.x = frame.origin.x + (frame.width - width) / 2
             rect.origin.y = frame.origin.y + (frame.height - height) / 2
         }

@@ -6,7 +6,7 @@ class PopupWindow: NSPanel {
     let profileName: String
 
     /// True when this popup corresponds to the built-in "quick" profile.
-    var isQuickProfile: Bool { profileName == "quick" }
+    var isQuickProfile: Bool { profileName == PopupManager.quickProfileName }
 
     init(profileName: String, contentRect: NSRect) {
         self.profileName = profileName

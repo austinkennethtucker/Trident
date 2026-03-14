@@ -180,7 +180,8 @@ pub const PopupManager = struct {
         };
         self.window_ptrs.append(self.alloc, win) catch |err| {
             log.warn("failed to track popup window: {}", .{err});
-            _ = self.window_names.pop();
+            const popped_name = self.window_names.pop();
+            self.alloc.free(popped_name);
             return false;
         };
 

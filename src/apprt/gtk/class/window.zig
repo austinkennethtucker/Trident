@@ -1135,8 +1135,10 @@ pub const Window = extern struct {
         _: *gobject.ParamSpec,
         self: *Self,
     ) callconv(.c) void {
-        // Hide popup/quick-terminal if set to autohide
-        if (self.isPopup() or self.isQuickTerminal()) {
+        // Hide popup/quick-terminal if set to autohide.
+        // isQuickTerminal() already checks isPopup() internally,
+        // so the combined check was redundant.
+        if (self.isQuickTerminal()) {
             if (self.getConfig()) |cfg| {
                 if (cfg.get().@"quick-terminal-autohide" and self.as(gtk.Window).isActive() == 0) {
                     self.toggleVisibility();

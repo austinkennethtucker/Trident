@@ -1,5 +1,8 @@
 const std = @import("std");
 
+/// The built-in profile name for the quick/dropdown terminal.
+pub const quick_profile_name: [:0]const u8 = "quick";
+
 /// Dimension: either absolute pixels or a percentage of screen.
 /// Parsed from strings like "400" (pixels) or "80%" (percentage).
 pub const Dimension = struct {

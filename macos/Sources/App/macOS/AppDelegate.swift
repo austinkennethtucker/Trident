@@ -986,7 +986,7 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func toggleQuickTerminal(_ sender: Any) {
-        popupManager.toggle("quick")
+        popupManager.toggle(PopupManager.quickProfileName)
     }
 
     /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates Ghostty as the frontmost application

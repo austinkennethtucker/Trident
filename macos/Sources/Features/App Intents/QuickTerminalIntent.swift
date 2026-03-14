@@ -21,10 +21,10 @@ struct QuickTerminalIntent: AppIntent {
         }
 
         // Show through PopupManager exclusively.
-        delegate.popupManager.show("quick")
+        delegate.popupManager.show(PopupManager.quickProfileName)
 
         // Grab all our terminals from the popup controller.
-        let terminals = delegate.popupManager.controllers["quick"]?.surfaceTree.root?.leaves().map {
+        let terminals = delegate.popupManager.controllers[PopupManager.quickProfileName]?.surfaceTree.root?.leaves().map {
             TerminalEntity($0)
         } ?? []
 

@@ -41,6 +41,7 @@ const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseCo
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 const PopupManager = @import("../PopupManager.zig").PopupManager;
+const popupmod = @import("../../../apprt/popup.zig");
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
@@ -2644,7 +2645,7 @@ const Action = struct {
     pub fn toggleQuickTerminal(self: *Application) bool {
         // Delegate to the popup manager using the "quick" profile name.
         const priv = self.private();
-        if (priv.popup_manager) |*pm| return pm.toggle("quick");
+        if (priv.popup_manager) |*pm| return pm.toggle(popupmod.quick_profile_name);
 
         // Fallback: if popup manager isn't initialized, use legacy path.
         if (getQuickTerminalWindow()) |win| {

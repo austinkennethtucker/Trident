@@ -7,6 +7,9 @@ import GhosttyKit
 /// created lazily on first toggle/show and kept alive for the lifetime
 /// of the manager (or until explicitly removed).
 class PopupManager {
+    /// The built-in profile name for the quick/dropdown terminal.
+    static let quickProfileName = "quick"
+
     private let ghosttyApp: Ghostty.App
     private(set) var controllers: [String: PopupController] = [:]
 
@@ -18,8 +21,8 @@ class PopupManager {
         self.ghosttyApp = ghosttyApp
         // Always register a "quick" profile with defaults that match
         // the existing quick terminal behavior.
-        profileConfigs["quick"] = PopupController.PopupProfileConfig(
-            position: "top",
+        profileConfigs[Self.quickProfileName] = PopupController.PopupProfileConfig(
+            position: .top,
             widthPercent: 100,
             heightPercent: 50,
             autohide: true,

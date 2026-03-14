@@ -35,6 +35,7 @@ const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Window = @import("window.zig").Window;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
+const popupmod = @import("../../../apprt/popup.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -1610,7 +1611,7 @@ pub const Surface = extern struct {
 
                     // Backward compat: also set GHOSTTY_QUICK_TERMINAL=1
                     // for the "quick" profile so existing scripts still work.
-                    if (std.mem.eql(u8, name, "quick")) {
+                    if (std.mem.eql(u8, name, popupmod.quick_profile_name)) {
                         try env.put("GHOSTTY_QUICK_TERMINAL", "1");
                     }
                 }

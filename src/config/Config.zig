@@ -4741,7 +4741,7 @@ pub fn finalize(self: *Config) !void {
 /// they remain legacy-only for now.
 pub fn migrateQuickTerminalToPopup(self: *Config, alloc: Allocator) !void {
     // If a "quick" popup was explicitly defined, legacy keys are ignored.
-    if (self.popup.get("quick") != null) return;
+    if (self.popup.get(popupmod.quick_profile_name) != null) return;
 
     // Determine whether any legacy quick-terminal-* key was changed
     // from its default value. We only check the keys we actually migrate.
@@ -4834,7 +4834,7 @@ pub fn migrateQuickTerminalToPopup(self: *Config, alloc: Allocator) !void {
         },
     }
 
-    const name_z = try alloc.dupeZ(u8, "quick");
+    const name_z = try alloc.dupeZ(u8, popupmod.quick_profile_name);
     try self.popup.names.append(alloc, name_z);
     try self.popup.profiles.append(alloc, profile);
 }
