@@ -966,9 +966,6 @@ typedef union {
   ghostty_action_scrollbar_s scrollbar;
   ghostty_action_inspector_e inspector;
   ghostty_action_desktop_notification_s desktop_notification;
-  ghostty_action_popup_s toggle_popup;
-  ghostty_action_popup_s show_popup;
-  ghostty_action_popup_s hide_popup;
   ghostty_action_set_title_s set_title;
   ghostty_action_set_title_s set_tab_title;
   ghostty_action_prompt_title_e prompt_title;

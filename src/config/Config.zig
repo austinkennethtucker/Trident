@@ -9232,6 +9232,10 @@ pub const RepeatablePopup = struct {
         if (input.len == 0) {
             // Free all owned strings before clearing arrays.
             for (self.names.items) |name| alloc.free(name);
+            for (self.profiles.items) |profile| {
+                if (profile.keybind) |kb| alloc.free(kb);
+                if (profile.command) |cmd| alloc.free(cmd);
+            }
             for (self.commands_z.items) |cmd_z| {
                 if (cmd_z) |ptr| {
                     const slice = std.mem.sliceTo(ptr, 0);
@@ -9274,7 +9278,9 @@ pub const RepeatablePopup = struct {
         // exists, replace its profile instead of appending a duplicate.
         for (self.names.items, 0..) |existing, i| {
             if (std.mem.eql(u8, existing, name_raw)) {
-                // Free old command string before overwriting.
+                // Free old profile strings before overwriting.
+                if (self.profiles.items[i].keybind) |kb| alloc.free(kb);
+                if (self.profiles.items[i].command) |cmd| alloc.free(cmd);
                 if (self.commands_z.items[i]) |old_cmd| {
                     const slice = std.mem.sliceTo(old_cmd, 0);
                     alloc.free(slice);
@@ -9306,6 +9312,7 @@ pub const RepeatablePopup = struct {
     /// Deep copy of the struct. Required by Config.
     pub fn clone(self: *const Self, alloc: Allocator) !Self {
         var new: Self = .{};
+        errdefer new.deinit(alloc);
         for (self.names.items) |name| {
             const duped = try alloc.dupeZ(u8, name);
             try new.names.append(alloc, duped);

@@ -94,7 +94,6 @@ class PopupController: BaseTerminalController {
 
     func show() {
         guard !visible else { return }
-        visible = true
 
         // Remember the previously focused app so we can restore it on hide.
         if !NSApp.isActive {
@@ -112,6 +111,7 @@ class PopupController: BaseTerminalController {
         }
 
         guard let window = self.window else { return }
+        visible = true
 
         // Set the SwiftUI content view if it hasn't been set yet.
         if window.contentView == nil || !(window.contentView is TerminalViewContainer) {
