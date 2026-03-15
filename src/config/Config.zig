@@ -4837,6 +4837,15 @@ pub fn migrateQuickTerminalToPopup(self: *Config, alloc: Allocator) !void {
     const name_z = try alloc.dupeZ(u8, popupmod.quick_profile_name);
     try self.popup.names.append(alloc, name_z);
     try self.popup.profiles.append(alloc, profile);
+
+    // Keep C-view arrays in sync (mirroring parseCLI pattern).
+    try self.popup.names_c.append(alloc, name_z.ptr);
+    const cmd_z: ?[*:0]const u8 = if (profile.command) |cmd|
+        (try alloc.dupeZ(u8, cmd)).ptr
+    else
+        null;
+    try self.popup.commands_z.append(alloc, cmd_z);
+    try self.popup.profiles_c.append(alloc, profile.cval(cmd_z));
 }
 
 /// Convert a legacy QuickTerminalSize.Size to a popup Dimension.
@@ -4936,12 +4945,21 @@ pub fn synthesizePopupKeybinds(self: *Config, alloc: Allocator) !void {
         }
     }
 
+    // Build a fresh default keybind set so we can distinguish user-explicit
+    // bindings from built-in defaults. Without this, a popup keybind that
+    // happens to collide with a default binding would be silently skipped.
+    var defaults: Keybinds = .{};
+    try defaults.init(alloc);
+
     // Second pass: insert collected popup bindings into the keybind set.
-    // Explicit user keybinds (already in the set) take precedence.
+    // Only skip if the trigger was explicitly bound by the user (present
+    // in the live set AND not in the fresh defaults).
     for (popup_binds.items) |pb| {
-        if (self.keybind.set.get(pb.trigger) != null) {
+        const in_live = self.keybind.set.get(pb.trigger) != null;
+        const in_defaults = defaults.set.get(pb.trigger) != null;
+        if (in_live and !in_defaults) {
             log.info(
-                "popup '{s}': keybind '{s}' already bound, skipping synthesis",
+                "popup '{s}': keybind '{s}' explicitly bound by user, skipping synthesis",
                 .{ pb.name, pb.keybind_str },
             );
             continue;
@@ -9280,20 +9298,32 @@ pub const RepeatablePopup = struct {
             try new.names_c.append(alloc, duped.ptr);
         }
         for (self.profiles.items) |profile| {
-            try new.profiles.append(alloc, profile);
+            var cloned_profile = profile;
+            // Deep-copy string fields so the clone doesn't alias source memory.
+            if (profile.keybind) |kb| {
+                cloned_profile.keybind = try alloc.dupe(u8, kb);
+            }
+            if (profile.command) |cmd| {
+                cloned_profile.command = try alloc.dupe(u8, cmd);
+            }
+            try new.profiles.append(alloc, cloned_profile);
             // Re-create sentinel-terminated command copy for the clone.
-            const new_cmd_z: ?[*:0]const u8 = if (profile.command) |cmd|
+            const new_cmd_z: ?[*:0]const u8 = if (cloned_profile.command) |cmd|
                 (try alloc.dupeZ(u8, cmd)).ptr
             else
                 null;
             try new.commands_z.append(alloc, new_cmd_z);
-            try new.profiles_c.append(alloc, profile.cval(new_cmd_z));
+            try new.profiles_c.append(alloc, cloned_profile.cval(new_cmd_z));
         }
         return new;
     }
 
     pub fn deinit(self: *Self, alloc: Allocator) void {
         for (self.names.items) |name| alloc.free(name);
+        for (self.profiles.items) |profile| {
+            if (profile.keybind) |kb| alloc.free(kb);
+            if (profile.command) |cmd| alloc.free(cmd);
+        }
         self.names.deinit(alloc);
         self.profiles.deinit(alloc);
         self.names_c.deinit(alloc);
@@ -9308,8 +9338,13 @@ pub const RepeatablePopup = struct {
         self: Self,
         formatter: formatterpkg.EntryFormatter,
     ) !void {
-        _ = self;
         _ = formatter;
+        if (self.names.items.len > 0) {
+            log.warn(
+                "popup config entries cannot be serialized yet; {d} entries dropped",
+                .{self.names.items.len},
+            );
+        }
     }
 
     /// Compare if two values are equal. Required by Config.
@@ -9318,7 +9353,9 @@ pub const RepeatablePopup = struct {
         for (a.names.items, a.profiles.items, 0..) |name_a, prof_a, i| {
             const name_b = b.names.items[i];
             if (!std.mem.eql(u8, name_a, name_b)) return false;
-            if (!std.meta.eql(prof_a, b.profiles.items[i])) return false;
+            // Use deepEqual for content-based comparison of profile fields,
+            // including optional string fields (keybind, command).
+            if (!deepEqual(popupmod.PopupProfile, prof_a, b.profiles.items[i])) return false;
         }
         return true;
     }
