@@ -162,7 +162,6 @@ pub const PopupManager = struct {
             log.warn("failed to allocate popup profile name: {}", .{err});
             return false;
         };
-        errdefer self.alloc.free(name_z);
 
         // Create a new window with is-popup=true
         const win = gobject.ext.newInstance(Window, .{
@@ -176,12 +175,15 @@ pub const PopupManager = struct {
         // Track the window
         self.window_names.append(self.alloc, name_z) catch |err| {
             log.warn("failed to track popup window name: {}", .{err});
+            self.alloc.free(name_z);
+            win.as(gtk.Window).destroy();
             return false;
         };
         self.window_ptrs.append(self.alloc, win) catch |err| {
             log.warn("failed to track popup window: {}", .{err});
             const popped_name = self.window_names.pop();
             self.alloc.free(popped_name);
+            win.as(gtk.Window).destroy();
             return false;
         };
 
