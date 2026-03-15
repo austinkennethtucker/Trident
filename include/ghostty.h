@@ -950,6 +950,9 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_TOGGLE_POPUP,
+  GHOSTTY_ACTION_SHOW_POPUP,
+  GHOSTTY_ACTION_HIDE_POPUP,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -994,6 +997,9 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_popup_s toggle_popup;
+  ghostty_action_popup_s show_popup;
+  ghostty_action_popup_s hide_popup;
 } ghostty_action_u;
 
 typedef struct {
