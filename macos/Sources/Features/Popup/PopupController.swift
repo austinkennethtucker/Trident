@@ -24,8 +24,10 @@ class PopupController: BaseTerminalController {
             case right = 4
         }
         var position: Position = .center
-        var widthPercent: Int = 80
-        var heightPercent: Int = 80
+        var widthValue: UInt32 = 80
+        var widthIsPercent: Bool = true
+        var heightValue: UInt32 = 80
+        var heightIsPercent: Bool = true
         var autohide: Bool = true
         var persist: Bool = true
         var command: String? = nil
@@ -232,8 +234,21 @@ class PopupController: BaseTerminalController {
               let screen = NSScreen.main else { return }
 
         let frame = screen.visibleFrame
-        let width = CGFloat(profileConfig.widthPercent) / 100.0 * frame.width
-        let height = CGFloat(profileConfig.heightPercent) / 100.0 * frame.height
+        let width: CGFloat
+        let height: CGFloat
+
+        if profileConfig.widthIsPercent {
+            width = CGFloat(profileConfig.widthValue) / 100.0 * frame.width
+        } else {
+            width = CGFloat(profileConfig.widthValue)
+        }
+
+        if profileConfig.heightIsPercent {
+            height = CGFloat(profileConfig.heightValue) / 100.0 * frame.height
+        } else {
+            height = CGFloat(profileConfig.heightValue)
+        }
+
         var rect = NSRect(x: 0, y: 0, width: width, height: height)
 
         switch profileConfig.position {

@@ -114,15 +114,6 @@ pub const Action = union(Key) {
     /// Toggle the quick terminal in or out.
     toggle_quick_terminal,
 
-    /// Toggle a named popup terminal visibility.
-    toggle_popup: PopupAction,
-
-    /// Show a named popup terminal (create if needed, no-op if visible).
-    show_popup: PopupAction,
-
-    /// Hide a named popup terminal.
-    hide_popup: PopupAction,
-
     /// Toggle the command palette.
     toggle_command_palette,
 
@@ -374,9 +365,6 @@ pub const Action = union(Key) {
         toggle_tab_overview,
         toggle_window_decorations,
         toggle_quick_terminal,
-        toggle_popup,
-        show_popup,
-        hide_popup,
         toggle_command_palette,
         toggle_visibility,
         toggle_background_opacity,

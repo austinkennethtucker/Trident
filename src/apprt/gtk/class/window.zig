@@ -1136,13 +1136,27 @@ pub const Window = extern struct {
         self: *Self,
     ) callconv(.c) void {
         // Hide popup/quick-terminal if set to autohide.
-        // isQuickTerminal() already checks isPopup() internally,
-        // so the combined check was redundant.
-        if (self.isQuickTerminal()) {
-            if (self.getConfig()) |cfg| {
-                if (cfg.get().@"quick-terminal-autohide" and self.as(gtk.Window).isActive() == 0) {
-                    self.toggleVisibility();
+        if (self.getConfig()) |cfg| {
+            const should_autohide = blk: {
+                // For popup terminals, use per-profile autohide setting
+                if (self.isPopup()) {
+                    if (self.popupProfileName()) |name| {
+                        if (cfg.get().popup.get(name)) |profile| {
+                            break :blk profile.autohide;
+                        }
+                    }
+                    // Fallback to default if profile not found
+                    break :blk true;
                 }
+                // For legacy quick-terminal (non-popup), use global setting
+                if (self.isQuickTerminal()) {
+                    break :blk cfg.get().@"quick-terminal-autohide";
+                }
+                break :blk false;
+            };
+
+            if (should_autohide and self.as(gtk.Window).isActive() == 0) {
+                self.toggleVisibility();
             }
         }
 

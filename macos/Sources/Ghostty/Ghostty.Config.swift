@@ -625,8 +625,10 @@ extension Ghostty {
                 }
                 result[name] = PopupController.PopupProfileConfig(
                     position: PopupController.PopupProfileConfig.Position(rawValue: Int(p.position)) ?? .center,
-                    widthPercent: Int(p.width_is_percent ? p.width_value : 80),
-                    heightPercent: Int(p.height_is_percent ? p.height_value : 80),
+                    widthValue: p.width_value,
+                    widthIsPercent: p.width_is_percent,
+                    heightValue: p.height_value,
+                    heightIsPercent: p.height_is_percent,
                     autohide: p.autohide,
                     persist: p.persist,
                     command: cmd

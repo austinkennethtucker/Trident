@@ -9230,6 +9230,14 @@ pub const RepeatablePopup = struct {
     ) !void {
         const input = input_ orelse "";
         if (input.len == 0) {
+            // Free all owned strings before clearing arrays.
+            for (self.names.items) |name| alloc.free(name);
+            for (self.commands_z.items) |cmd_z| {
+                if (cmd_z) |ptr| {
+                    const slice = std.mem.sliceTo(ptr, 0);
+                    alloc.free(slice);
+                }
+            }
             self.names.clearRetainingCapacity();
             self.profiles.clearRetainingCapacity();
             self.names_c.clearRetainingCapacity();
@@ -9266,10 +9274,16 @@ pub const RepeatablePopup = struct {
         // exists, replace its profile instead of appending a duplicate.
         for (self.names.items, 0..) |existing, i| {
             if (std.mem.eql(u8, existing, name_raw)) {
+                // Free old command string before overwriting.
+                if (self.commands_z.items[i]) |old_cmd| {
+                    const slice = std.mem.sliceTo(old_cmd, 0);
+                    alloc.free(slice);
+                }
+                // Free the new name since we're not using it.
+                alloc.free(name);
                 self.profiles.items[i] = profile;
                 self.commands_z.items[i] = cmd_z;
                 self.profiles_c.items[i] = profile.cval(cmd_z);
-                alloc.free(name);
                 return;
             }
         }
@@ -9323,6 +9337,12 @@ pub const RepeatablePopup = struct {
         for (self.profiles.items) |profile| {
             if (profile.keybind) |kb| alloc.free(kb);
             if (profile.command) |cmd| alloc.free(cmd);
+        }
+        for (self.commands_z.items) |cmd_z| {
+            if (cmd_z) |ptr| {
+                const slice = std.mem.sliceTo(ptr, 0);
+                alloc.free(slice);
+            }
         }
         self.names.deinit(alloc);
         self.profiles.deinit(alloc);
@@ -11323,4 +11343,86 @@ test "compatibility: window new-window" {
             cfg.@"macos-dock-drop-behavior",
         );
     }
+}
+
+test "popup: basic parsing via CLI" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var popups: RepeatablePopup = .{};
+    try popups.parseCLI(alloc, "myterm:width:80%,height:50%");
+    try popups.parseCLI(alloc, "other:width:400,height:300");
+
+    try testing.expectEqual(@as(usize, 2), popups.names.items.len);
+
+    const p1 = popups.get("myterm");
+    try testing.expect(p1 != null);
+    if (p1) |p| {
+        try testing.expectEqual(@as(u32, 80), p.width.value);
+        try testing.expectEqual(popupmod.Dimension.Unit.percent, p.width.unit);
+        try testing.expectEqual(@as(u32, 50), p.height.value);
+        try testing.expectEqual(popupmod.Dimension.Unit.percent, p.height.unit);
+    }
+
+    const p2 = popups.get("other");
+    try testing.expect(p2 != null);
+    if (p2) |p| {
+        try testing.expectEqual(@as(u32, 400), p.width.value);
+        try testing.expectEqual(popupmod.Dimension.Unit.pixels, p.width.unit);
+        try testing.expectEqual(@as(u32, 300), p.height.value);
+        try testing.expectEqual(popupmod.Dimension.Unit.pixels, p.height.unit);
+    }
+}
+
+test "popup: duplicate name replacement" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var popups: RepeatablePopup = .{};
+    try popups.parseCLI(alloc, "myterm:width:80%");
+    try popups.parseCLI(alloc, "myterm:width:100%");
+
+    // Should only have one profile named "myterm"
+    try testing.expectEqual(@as(usize, 1), popups.names.items.len);
+
+    // Should be the second definition (100%)
+    const profile = popups.get("myterm");
+    try testing.expect(profile != null);
+    if (profile) |p| {
+        try testing.expectEqual(@as(u32, 100), p.width.value);
+    }
+}
+
+test "popup: parseCLI empty clears profiles" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var popups: RepeatablePopup = .{};
+    try popups.parseCLI(alloc, "myterm:width:80%");
+    try popups.parseCLI(alloc, "other:width:50%");
+    try testing.expectEqual(@as(usize, 2), popups.names.items.len);
+
+    // Clear with empty string
+    try popups.parseCLI(alloc, "");
+    try testing.expectEqual(@as(usize, 0), popups.names.items.len);
+}
+
+test "popup: invalid name rejected" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var popups: RepeatablePopup = .{};
+
+    // Names with spaces or special chars should be rejected
+    try testing.expectError(error.InvalidValue, popups.parseCLI(alloc, "bad name:width:80%"));
+    try testing.expectError(error.InvalidValue, popups.parseCLI(alloc, "bad@name:width:80%"));
+    try testing.expectEqual(@as(usize, 0), popups.names.items.len);
 }

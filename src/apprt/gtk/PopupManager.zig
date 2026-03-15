@@ -9,6 +9,7 @@ const popupmod = @import("../../apprt/popup.zig");
 const configpkg = @import("../../config.zig");
 
 const Window = @import("class/window.zig").Window;
+const WeakRef = @import("weak_ref.zig").WeakRef;
 
 const log = std.log.scoped(.popup_manager);
 
@@ -27,10 +28,12 @@ pub const PopupManager = struct {
     profiles: std.ArrayListUnmanaged(popupmod.PopupProfile) = .empty,
 
     /// Tracked popup window instances. Each entry stores the owned name
-    /// (sentinel-terminated) and a pointer to the Window. We use a simple
-    /// parallel-array approach to avoid hashmap key ownership complexity.
+    /// (sentinel-terminated) and a weak reference to the Window. We use a
+    /// simple parallel-array approach to avoid hashmap key ownership complexity.
+    /// WeakRef ensures we don't hold dangling pointers when windows are
+    /// destroyed externally (e.g., user closes window, GTK shutdown order).
     window_names: std.ArrayListUnmanaged([:0]const u8) = .empty,
-    window_ptrs: std.ArrayListUnmanaged(*Window) = .empty,
+    window_refs: std.ArrayListUnmanaged(WeakRef(Window)) = .empty,
 
     pub fn init(alloc: Allocator) PopupManager {
         return .{
@@ -45,7 +48,7 @@ pub const PopupManager = struct {
 
         for (self.window_names.items) |name| self.alloc.free(name);
         self.window_names.deinit(self.alloc);
-        self.window_ptrs.deinit(self.alloc);
+        self.window_refs.deinit(self.alloc);
     }
 
     /// Load popup profiles from the config. This replaces any previously
@@ -81,7 +84,8 @@ pub const PopupManager = struct {
     /// Toggle a popup by name: create+show if not exists, show if hidden,
     /// hide if visible.
     pub fn toggle(self: *PopupManager, name: []const u8) bool {
-        if (self.findWindow(name)) |win| {
+        if (self.findValidWindow(name)) |win| {
+            defer win.unref();
             const widget = win.as(gtk.Widget);
             if (widget.isVisible() != 0) {
                 return self.hide(name);
@@ -98,7 +102,8 @@ pub const PopupManager = struct {
     /// Show a popup by name: create+show if not exists, show if hidden,
     /// no-op if already visible.
     pub fn show(self: *PopupManager, name: []const u8) bool {
-        if (self.findWindow(name)) |win| {
+        if (self.findValidWindow(name)) |win| {
+            defer win.unref();
             const widget = win.as(gtk.Widget);
             if (widget.isVisible() != 0) return true;
             widget.setVisible(1);
@@ -113,7 +118,12 @@ pub const PopupManager = struct {
     /// the window instead of just hiding it.
     pub fn hide(self: *PopupManager, name: []const u8) bool {
         const idx = self.findWindowIndex(name) orelse return false;
-        const win = self.window_ptrs.items[idx];
+        const win = self.window_refs.items[idx].get() orelse {
+            // Window was destroyed externally, clean up the stale entry.
+            self.removeWindowAt(idx);
+            return false;
+        };
+        defer win.unref();
 
         // Check if the profile says to destroy on hide
         const profile = self.getProfile(name);
@@ -131,12 +141,15 @@ pub const PopupManager = struct {
 
     /// Hide (or destroy) all popup windows. Called during quit.
     pub fn hideAll(self: *PopupManager) void {
-        for (self.window_ptrs.items) |win| {
-            win.as(gtk.Window).destroy();
+        for (self.window_refs.items) |*ref| {
+            if (ref.get()) |win| {
+                defer win.unref();
+                win.as(gtk.Window).destroy();
+            }
         }
         for (self.window_names.items) |name| self.alloc.free(name);
         self.window_names.clearRetainingCapacity();
-        self.window_ptrs.clearRetainingCapacity();
+        self.window_refs.clearRetainingCapacity();
     }
 
     /// Create a new popup window and show it.
@@ -172,15 +185,18 @@ pub const PopupManager = struct {
         // Store the profile name on the window so surfaces can read it
         win.setPopupProfileName(name_z);
 
-        // Track the window
+        // Track the window with a weak reference
+        var weak_ref: WeakRef(Window) = .empty;
+        weak_ref.set(win);
+
         self.window_names.append(self.alloc, name_z) catch |err| {
             log.warn("failed to track popup window name: {}", .{err});
             self.alloc.free(name_z);
             win.as(gtk.Window).destroy();
             return false;
         };
-        self.window_ptrs.append(self.alloc, win) catch |err| {
-            log.warn("failed to track popup window: {}", .{err});
+        self.window_refs.append(self.alloc, weak_ref) catch |err| {
+            log.warn("failed to track popup window ref: {}", .{err});
             const popped_name = self.window_names.pop();
             self.alloc.free(popped_name);
             win.as(gtk.Window).destroy();
@@ -207,9 +223,17 @@ pub const PopupManager = struct {
 
     // -- Internal helpers --
 
-    fn findWindow(self: *const PopupManager, name: []const u8) ?*Window {
+    /// Find a valid window by name. Returns a strong reference that the
+    /// caller must release with unref() when done. Returns null if the
+    /// window doesn't exist or was destroyed externally.
+    fn findValidWindow(self: *PopupManager, name: []const u8) ?*Window {
         const idx = self.findWindowIndex(name) orelse return null;
-        return self.window_ptrs.items[idx];
+        const win = self.window_refs.items[idx].get() orelse {
+            // Window was destroyed externally, clean up the stale entry.
+            self.removeWindowAt(idx);
+            return null;
+        };
+        return win;
     }
 
     fn findWindowIndex(self: *const PopupManager, name: []const u8) ?usize {
@@ -221,7 +245,7 @@ pub const PopupManager = struct {
 
     fn removeWindowAt(self: *PopupManager, idx: usize) void {
         const name = self.window_names.orderedRemove(idx);
-        _ = self.window_ptrs.orderedRemove(idx);
+        _ = self.window_refs.orderedRemove(idx);
         self.alloc.free(name);
     }
 

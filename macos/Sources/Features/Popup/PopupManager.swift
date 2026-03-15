@@ -23,8 +23,10 @@ class PopupManager {
         // the existing quick terminal behavior.
         profileConfigs[Self.quickProfileName] = PopupController.PopupProfileConfig(
             position: .top,
-            widthPercent: 100,
-            heightPercent: 50,
+            widthValue: 100,
+            widthIsPercent: true,
+            heightValue: 50,
+            heightIsPercent: true,
             autohide: true,
             persist: true,
             command: nil
