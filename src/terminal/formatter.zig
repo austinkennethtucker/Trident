@@ -911,14 +911,13 @@ pub const PageFormatter = struct {
             switch (cells[end_x].wide) {
                 .spacer_head => {
                     // Move to next row if available
-                    //
-                    // TODO: if unavailable, we should add to our trailing state
-                    //
-                    // so the pagelist formatter can be aware and maybe add
-                    // another page
                     if (end_y < self.page.size.rows - 1) {
                         end_y += 1;
                         end_x = 0;
+                    } else {
+                        // If unavailable, we add to our trailing state
+                        // so the pagelist formatter can be aware and process it correctly
+                        blank_cells += 1;
                     }
                 },
 
