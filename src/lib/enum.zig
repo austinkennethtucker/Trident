@@ -143,3 +143,52 @@ pub fn checkGhosttyHEnum(comptime T: type, comptime prefix: []const u8) !void {
         return e;
     };
 }
+
+/// Verify that for every key in a non-exhaustive enum T, there is a matching declaration in
+/// `ghostty.h` with the correct value.
+pub fn checkGhosttyHEnumNonExhaustive(comptime T: type, comptime prefix: []const u8) !void {
+    const info = @typeInfo(T);
+
+    try std.testing.expect(info == .@"enum");
+    try std.testing.expect(info.@"enum".tag_type == c_int);
+    try std.testing.expect(info.@"enum".is_exhaustive == false);
+
+    @setEvalBranchQuota(1000000);
+
+    const c = @import("ghostty.h");
+    const c_decls = @typeInfo(c).@"struct".decls;
+    const enum_fields = info.@"enum".fields;
+
+    var fields_found = [_]bool{false} ** enum_fields.len;
+
+    inline for (enum_fields, 0..) |field, i| {
+        const upper_name = comptime u: {
+            var buf: [128]u8 = undefined;
+            break :u std.ascii.upperString(&buf, field.name);
+        };
+
+        inline for (c_decls) |decl| {
+            if (!comptime std.mem.startsWith(u8, decl.name, prefix)) continue;
+
+            const suffix = decl.name[prefix.len..];
+
+            if (!comptime std.mem.eql(u8, suffix, upper_name)) continue;
+
+            std.testing.expectEqual(field.value, @field(c, decl.name)) catch |e| {
+                std.log.err(@typeName(T) ++ " key " ++ field.name ++ " does not have the same backing int as " ++ decl.name, .{});
+                return e;
+            };
+
+            fields_found[i] = true;
+        }
+    }
+
+    inline for (enum_fields, 0..) |field, i| {
+        std.testing.expect(fields_found[i]) catch |e| {
+            var buf: [128]u8 = undefined;
+            const upper_string = std.ascii.upperString(&buf, field.name);
+            std.log.err("ghostty.h is missing value for {s}{s}", .{ prefix, upper_string });
+            return e;
+        };
+    }
+}
