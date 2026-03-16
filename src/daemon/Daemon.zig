@@ -480,6 +480,9 @@ fn handleClientMessage(
             session.deinit();
             self.alloc.destroy(session);
             log.info("destroyed session '{s}'", .{name});
+
+            // Send the updated session list as confirmation.
+            try self.sendSessionList(client_fd);
         },
     }
 }
