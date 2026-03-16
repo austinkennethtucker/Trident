@@ -364,6 +364,15 @@ pub inline fn imageTextureOptions(
     };
 }
 
+/// Returns the options to use when constructing textures for background images.
+pub inline fn bgImageTextureOptions(
+    self: Metal,
+    format: ImageTextureFormat,
+    srgb: bool,
+) Texture.Options {
+    return self.imageTextureOptions(format, srgb);
+}
+
 /// Initializes a Texture suitable for the provided font atlas.
 pub fn initAtlasTexture(
     self: *const Metal,

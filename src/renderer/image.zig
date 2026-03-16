@@ -80,6 +80,7 @@ pub const State = struct {
                 img.upload(
                     alloc,
                     api,
+                    api.imageTextureOptions(.rgba, true),
                 ) catch |err| {
                     log.warn("error uploading image to GPU err={}", .{err});
                     success = false;
@@ -878,6 +879,7 @@ pub const Image = union(enum) {
         self: *Image,
         alloc: Allocator,
         api: *const GraphicsAPI,
+        options: GraphicsAPI.Texture.Options,
     ) (wuffs.Error || error{
         /// Texture creation failed, usually a GPU memory issue.
         UploadFailed,
@@ -893,7 +895,7 @@ pub const Image = union(enum) {
 
         // Create our texture
         const texture = Texture.init(
-            api.imageTextureOptions(.rgba, true),
+            options,
             @intCast(p.width),
             @intCast(p.height),
             p.dataSlice(),

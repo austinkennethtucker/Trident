@@ -1861,7 +1861,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.bg_image = null;
                     return;
                 }
-                if (bg.isPending()) try bg.upload(self.alloc, &self.api);
+                if (bg.isPending()) try bg.upload(self.alloc, &self.api, self.api.bgImageTextureOptions(.rgba, true));
             }
         }
 

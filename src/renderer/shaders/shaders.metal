@@ -402,8 +402,8 @@ fragment float4 bg_image_fragment(
   constant Uniforms& uniforms [[buffer(1)]]
 ) {
   constexpr sampler textureSampler(
-    coord::pixel,
-    address::clamp_to_zero,
+    coord::normalized,
+    address::repeat,
     filter::linear
   );
 
@@ -412,22 +412,26 @@ fragment float4 bg_image_fragment(
   // and the original texture size, which effectively scales the original
   // size of the texture to the dest rect size.
   float2 tex_coord = (in.position.xy - in.offset) * in.scale;
+  float2 tex_size = float2(image.get_width(), image.get_height());
 
-  // If we need to repeat the texture, wrap the coordinates.
-  if (in.repeat) {
-    float2 tex_size = float2(image.get_width(), image.get_height());
+  float4 rgba;
 
-    tex_coord = fmod(fmod(tex_coord, tex_size) + tex_size, tex_size);
+  // If we are not repeating and we're out of bounds, we have no color,
+  // otherwise we sample the texture for it.
+  // Repeating textures rely on the sampler wrap mode, so they can bypass bounds checking.
+  if (!in.repeat && (tex_coord.x < 0.0 || tex_coord.y < 0.0 || tex_coord.x > tex_size.x || tex_coord.y > tex_size.y)) {
+    rgba = float4(0.0);
+  } else {
+    // We divide by the texture size to normalize for sampling.
+    rgba = image.sample(textureSampler, tex_coord / tex_size);
+
+    if (!uniforms.use_linear_blending) {
+      rgba = unlinearize(rgba);
+    }
+
+    // Premultiply the bg image.
+    rgba.rgb *= rgba.a;
   }
-
-  float4 rgba = image.sample(textureSampler, tex_coord);
-
-  if (!uniforms.use_linear_blending) {
-    rgba = unlinearize(rgba);
-  }
-
-  // Premultiply the bg image.
-  rgba.rgb *= rgba.a;
 
   // Multiply it by the configured opacity, but cap it at
   // the value that will make it fully opaque relative to

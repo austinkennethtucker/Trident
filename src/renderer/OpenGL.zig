@@ -410,12 +410,21 @@ pub inline fn imageTextureOptions(
         //       look good even when scaled way down.
         .min_filter = .linear,
         .mag_filter = .linear,
-        // TODO: Separate out background image options, use
-        //       repeating coordinate modes so we don't have
-        //       to do the modulus in the shader.
         .wrap_s = .clamp_to_edge,
         .wrap_t = .clamp_to_edge,
     };
+}
+
+/// Returns the options to use when constructing textures for background images.
+pub inline fn bgImageTextureOptions(
+    self: OpenGL,
+    format: ImageTextureFormat,
+    srgb: bool,
+) Texture.Options {
+    var opts = self.imageTextureOptions(format, srgb);
+    opts.wrap_s = .repeat;
+    opts.wrap_t = .repeat;
+    return opts;
 }
 
 /// Initializes a Texture suitable for the provided font atlas.
