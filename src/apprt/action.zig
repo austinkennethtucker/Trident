@@ -570,10 +570,9 @@ pub const GotoTab = enum(c_int) {
     last = -3,
     _,
 
-    // TODO: check non-exhaustive enums
-    // test "ghostty.h GotoTab" {
-    //     try lib.checkGhosttyHEnum(GotoTab, "GHOSTTY_GOTO_TAB_");
-    // }
+    test "ghostty.h GotoTab" {
+        try lib.checkGhosttyHEnumNonExhaustive(GotoTab, "GHOSTTY_GOTO_TAB_");
+    }
 };
 
 /// The fullscreen mode to toggle to if we're moving to fullscreen.
@@ -884,10 +883,9 @@ pub const ColorKind = enum(c_int) {
     // 0+ values indicate a palette index
     _,
 
-    // TODO: check non-non-exhaustive enums
-    // test "ghostty.h ColorKind" {
-    //     try lib.checkGhosttyHEnum(ColorKind, "GHOSTTY_COLOR_KIND_");
-    // }
+    test "ghostty.h ColorKind" {
+        try lib.checkGhosttyHEnumNonExhaustive(ColorKind, "GHOSTTY_ACTION_COLOR_KIND_");
+    }
 };
 
 pub const ReloadConfig = extern struct {
