@@ -721,3 +721,58 @@ fn highlightPixelRect(
     ctx.setSourceToPixel(border_color);
     try ctx.stroke();
 }
+
+test "gutterWidth computes correct width" {
+    const testing = std.testing;
+    // Single digit + separator
+    try testing.expectEqual(@as(usize, 2), gutterWidth(0));
+    try testing.expectEqual(@as(usize, 2), gutterWidth(9));
+    // Two digits + separator
+    try testing.expectEqual(@as(usize, 3), gutterWidth(10));
+    try testing.expectEqual(@as(usize, 3), gutterWidth(99));
+    // Three digits + separator
+    try testing.expectEqual(@as(usize, 4), gutterWidth(100));
+    try testing.expectEqual(@as(usize, 4), gutterWidth(999));
+    // Four digits + separator
+    try testing.expectEqual(@as(usize, 5), gutterWidth(1000));
+    try testing.expectEqual(@as(usize, 5), gutterWidth(9999));
+}
+
+test "digitSegments returns correct segments for all digits" {
+    const testing = std.testing;
+    // Digit 0: all segments except middle
+    const s0 = digitSegments(0);
+    try testing.expect(s0.top);
+    try testing.expect(s0.top_left);
+    try testing.expect(s0.top_right);
+    try testing.expect(!s0.middle);
+    try testing.expect(s0.bottom_left);
+    try testing.expect(s0.bottom_right);
+    try testing.expect(s0.bottom);
+
+    // Digit 1: only right side
+    const s1 = digitSegments(1);
+    try testing.expect(!s1.top);
+    try testing.expect(!s1.top_left);
+    try testing.expect(s1.top_right);
+    try testing.expect(!s1.middle);
+    try testing.expect(!s1.bottom_left);
+    try testing.expect(s1.bottom_right);
+    try testing.expect(!s1.bottom);
+
+    // Digit 8: all segments
+    const s8 = digitSegments(8);
+    try testing.expect(s8.top);
+    try testing.expect(s8.top_left);
+    try testing.expect(s8.top_right);
+    try testing.expect(s8.middle);
+    try testing.expect(s8.bottom_left);
+    try testing.expect(s8.bottom_right);
+    try testing.expect(s8.bottom);
+
+    // Invalid digit: no segments
+    const s_invalid = digitSegments(10);
+    try testing.expect(!s_invalid.top);
+    try testing.expect(!s_invalid.middle);
+    try testing.expect(!s_invalid.bottom);
+}
