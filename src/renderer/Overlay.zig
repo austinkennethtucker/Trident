@@ -326,9 +326,13 @@ fn highlightViCursor(
 /// Draw a mode indicator bar at the bottom-left of the overlay for vi mode.
 /// The bar width matches the mode label length, and visual modes use a
 /// different color to provide visual distinction without text rendering.
+///
+/// Uses direct pixel writes (not z2d path compositing) to guarantee a
+/// uniform bar without alpha accumulation from any previously-drawn
+/// overlay features on the same surface.
 fn highlightViModeIndicator(
     self: *Overlay,
-    alloc: Allocator,
+    _: Allocator,
     state: *const terminal.RenderState,
     text: []const u8,
 ) void {
@@ -343,20 +347,19 @@ fn highlightViModeIndicator(
 
     const fill_color = if (is_visual) vi_visual_fill() else Color.vi_cursor.rectFill();
 
-    // Use fill color for both fill and border to avoid the visual
-    // artifact of two distinct bars (border top + border bottom)
-    // when the indicator is only 1 cell tall.
-    self.highlightGridRect(
-        alloc,
-        0,
-        bar_row,
-        bar_width,
-        1,
-        fill_color,
-        fill_color,
-    ) catch |err| {
-        log.warn("Error drawing vi mode indicator: {}", .{err});
-    };
+    // Calculate pixel dimensions
+    const px_x: i32 = 0;
+    const px_y: i32 = std.math.cast(i32, bar_row *| self.cell_size.height) orelse return;
+    const px_width: usize = bar_width *| self.cell_size.width;
+    const px_height: usize = self.cell_size.height;
+
+    // Direct pixel write — paintStride replaces pixels (no alpha
+    // compositing), ensuring the bar is uniform regardless of any
+    // other overlay features drawn on the same row.
+    for (0..px_height) |dy| {
+        const y: i32 = px_y +| @as(i32, std.math.cast(i32, dy) orelse continue);
+        self.surface.paintStride(px_x, y, px_width, fill_color);
+    }
 }
 
 /// Blue fill for visual mode indicator (distinct from normal mode amber).

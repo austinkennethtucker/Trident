@@ -1276,19 +1276,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         feature_list.appendSlice(arena_alloc, insp_features) catch {};
                     }
 
-                    // Vi mode features
+                    // Vi mode features — indicator first so it draws on
+                    // a clean surface, then cursor on top so it's visible.
                     if (state.vi_mode.active) {
+                        if (state.vi_mode.mode_text) |text| {
+                            feature_list.append(arena_alloc, .{
+                                .vi_mode_indicator = text,
+                            }) catch {};
+                        }
                         if (state.vi_mode.cursor_row) |row| {
                             if (state.vi_mode.cursor_col) |col| {
                                 feature_list.append(arena_alloc, .{
                                     .vi_cursor = .{ .row = row, .col = col },
                                 }) catch {};
                             }
-                        }
-                        if (state.vi_mode.mode_text) |text| {
-                            feature_list.append(arena_alloc, .{
-                                .vi_mode_indicator = text,
-                            }) catch {};
                         }
                     }
 
