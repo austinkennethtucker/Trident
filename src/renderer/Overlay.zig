@@ -67,6 +67,11 @@ surface: z2d.Surface,
 /// Cell size information so we can map grid coordinates to pixels.
 cell_size: CellSize,
 
+/// Pixel offset for the vi-mode line number gutter.
+/// When non-zero, the overlay surface is wider than the terminal grid
+/// by this many pixels, and non-gutter features are offset right.
+gutter_offset_px: u32 = 0,
+
 /// The set of available features and their configuration.
 pub const Feature = union(enum) {
     highlight_hyperlinks,
@@ -89,15 +94,18 @@ pub const InitError = Allocator.Error || error{
 };
 
 /// Initialize a new, blank overlay.
-pub fn init(alloc: Allocator, sz: Size) InitError!Overlay {
+/// When `gutter_offset_px` is non-zero the surface is widened to cover
+/// both the gutter area and the terminal grid.
+pub fn init(alloc: Allocator, sz: Size, gutter_offset_px: u32) InitError!Overlay {
     // Our surface does NOT need to take into account padding because
     // we render the overlay using the image subsystem and shaders which
     // already take that into account.
     const term_size = sz.terminal();
+    const total_width = term_size.width + gutter_offset_px;
     var sfc = z2d.Surface.initPixel(
         .{ .rgba = .{ .r = 0, .g = 0, .b = 0, .a = 0 } },
         alloc,
-        std.math.cast(i32, term_size.width) orelse
+        std.math.cast(i32, total_width) orelse
             return error.InvalidDimensions,
         std.math.cast(i32, term_size.height) orelse
             return error.InvalidDimensions,
@@ -110,6 +118,7 @@ pub fn init(alloc: Allocator, sz: Size) InitError!Overlay {
     return .{
         .surface = sfc,
         .cell_size = sz.cell,
+        .gutter_offset_px = gutter_offset_px,
     };
 }
 
@@ -355,8 +364,8 @@ fn highlightViModeIndicator(
 
     const fill_color = if (is_visual) vi_visual_fill() else Color.vi_cursor.rectFill();
 
-    // Calculate pixel dimensions
-    const px_x: i32 = 0;
+    // Calculate pixel dimensions — offset right by gutter width
+    const px_x: i32 = std.math.cast(i32, self.gutter_offset_px) orelse return;
     const px_y: i32 = std.math.cast(i32, bar_row *| self.cell_size.height) orelse return;
     const px_width: usize = bar_width *| self.cell_size.width;
     const px_height: usize = self.cell_size.height;
@@ -571,7 +580,7 @@ fn gutterBrightDigit() z2d.Pixel {
 
 /// Compute the gutter width (in cells) for the given maximum number.
 /// Returns digit columns + 1 separator column.
-fn gutterWidth(max_number: usize) usize {
+pub fn gutterWidth(max_number: usize) usize {
     if (max_number == 0) return 2;
     var digits: usize = 0;
     var n = max_number;
@@ -621,11 +630,12 @@ fn highlightGridRect(
         self.cell_size.height,
     )) orelse return error.Overflow;
 
-    // Calculate pixel coordinates
-    const start_x: f64 = @floatFromInt(std.math.cast(i32, try std.math.mul(
+    // Calculate pixel coordinates, offset right by gutter width
+    const gutter_off: usize = self.gutter_offset_px;
+    const start_x: f64 = @floatFromInt(std.math.cast(i32, try std.math.add(
         usize,
-        x,
-        self.cell_size.width,
+        try std.math.mul(usize, x, self.cell_size.width),
+        gutter_off,
     )) orelse return error.Overflow);
     const start_y: f64 = @floatFromInt(std.math.cast(i32, try std.math.mul(
         usize,
@@ -682,10 +692,11 @@ fn highlightPixelRect(
         self.cell_size.height,
     )) orelse return error.Overflow;
 
-    const start_x: f64 = @floatFromInt(std.math.cast(i32, try std.math.mul(
+    const gutter_off: usize = self.gutter_offset_px;
+    const start_x: f64 = @floatFromInt(std.math.cast(i32, try std.math.add(
         usize,
-        x,
-        self.cell_size.width,
+        try std.math.mul(usize, x, self.cell_size.width),
+        gutter_off,
     )) orelse return error.Overflow);
     const start_y: f64 = @floatFromInt(std.math.cast(i32, try std.math.mul(
         usize,

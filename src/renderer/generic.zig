@@ -231,6 +231,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Our overlay state, if any.
         overlay: ?Overlay = null,
 
+        /// Pixel offset for the vi-mode line number gutter.
+        /// When non-zero, the grid is shifted right by this many pixels
+        /// and the overlay surface is widened to cover the gutter area.
+        gutter_offset_px: u32 = 0,
+
         const HighlightTag = enum(u8) {
             search_match,
             search_match_selected,
@@ -1160,6 +1165,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 scrollbar: terminal.Scrollbar,
                 overlay_features: []const Overlay.Feature,
                 vi_mode: renderer.State.ViMode,
+                gutter_offset_px: u32,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1316,6 +1322,23 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     break :overlay feature_list.items;
                 };
 
+                // Compute gutter pixel offset for vi-mode line numbers.
+                // When active, the grid will be shifted right by this amount.
+                const gutter_offset_px: u32 = gutter_offset: {
+                    if (!state.vi_mode.active or state.vi_mode.line_numbers == .off)
+                        break :gutter_offset 0;
+                    const cursor_row = state.vi_mode.cursor_row orelse break :gutter_offset 0;
+                    const top_abs = state.vi_mode.viewport_top_abs_row orelse break :gutter_offset 0;
+                    const viewport_rows = self.terminal_state.rows;
+                    const cursor_abs = top_abs + cursor_row + 1;
+                    const max_number: usize = switch (state.vi_mode.line_numbers) {
+                        .off => unreachable,
+                        .relative => @max(if (viewport_rows > 1) viewport_rows - 1 else 1, cursor_abs),
+                        .absolute => top_abs + viewport_rows,
+                    };
+                    break :gutter_offset @as(u32, @intCast(Overlay.gutterWidth(max_number) * self.grid_metrics.cell_width));
+                };
+
                 break :critical .{
                     .links = links,
                     .mouse = state.mouse,
@@ -1323,6 +1346,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .scrollbar = scrollbar,
                     .overlay_features = overlay_features,
                     .vi_mode = state.vi_mode,
+                    .gutter_offset_px = gutter_offset_px,
                 };
             };
 
@@ -1395,6 +1419,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // outside of any critical areas.
             self.rebuildOverlay(
                 critical.overlay_features,
+                critical.gutter_offset_px,
             ) catch |err| {
                 log.warn(
                     "error rebuilding overlay surface err={}",
@@ -1406,6 +1431,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             {
                 self.draw_mutex.lock();
                 defer self.draw_mutex.unlock();
+
+                // Update the projection matrix when the gutter width changes.
+                if (self.gutter_offset_px != critical.gutter_offset_px) {
+                    self.gutter_offset_px = critical.gutter_offset_px;
+                    self.updateScreenSizeUniforms();
+                }
 
                 // Build our GPU cells. When vi mode is active, we hide the
                 // real terminal cursor by passing null for cursor style.
@@ -1985,6 +2016,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Caller must hold the draw mutex.
         fn updateScreenSizeUniforms(self: *Self) void {
             const terminal_size = self.size.terminal();
+            const gutter: f32 = @floatFromInt(self.gutter_offset_px);
 
             // Blank space around the grid.
             const blank: renderer.Padding = self.size.screen.blankPadding(
@@ -1999,10 +2031,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 },
             ).add(self.size.padding);
 
-            // Setup our uniforms
+            // Setup our uniforms. When the gutter is active, shift the
+            // projection left boundary further left so the grid content
+            // renders shifted to the right by gutter pixels.
             self.uniforms.projection_matrix = math.ortho2d(
-                -1 * @as(f32, @floatFromInt(self.size.padding.left)),
-                @floatFromInt(terminal_size.width + self.size.padding.right),
+                -1 * @as(f32, @floatFromInt(self.size.padding.left)) - gutter,
+                @as(f32, @floatFromInt(terminal_size.width + self.size.padding.right)) - gutter,
                 @floatFromInt(terminal_size.height + self.size.padding.bottom),
                 -1 * @as(f32, @floatFromInt(self.size.padding.top)),
             );
@@ -2010,7 +2044,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 @floatFromInt(blank.top),
                 @floatFromInt(blank.right),
                 @floatFromInt(blank.bottom),
-                @floatFromInt(blank.left),
+                @as(f32, @floatFromInt(blank.left)) + gutter,
             };
             self.uniforms.screen_size = .{
                 @floatFromInt(self.size.screen.width),
@@ -2274,6 +2308,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         fn rebuildOverlay(
             self: *Self,
             features: []const Overlay.Feature,
+            gutter_offset_px: u32,
         ) Overlay.InitError!void {
             // const start = std.time.Instant.now() catch unreachable;
             // const start_micro = std.time.microTimestamp();
@@ -2308,12 +2343,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     const width: u32 = @intCast(v.surface.getWidth());
                     const height: u32 = @intCast(v.surface.getHeight());
                     const term_size = self.size.terminal();
-                    if (width != term_size.width or
+                    const expected_width = term_size.width + gutter_offset_px;
+                    if (width != expected_width or
                         height != term_size.height) break :existing;
 
-                    // We also depend on cell size.
+                    // We also depend on cell size and gutter offset.
                     if (v.cell_size.width != self.size.cell.width or
                         v.cell_size.height != self.size.cell.height) break :existing;
+                    if (v.gutter_offset_px != gutter_offset_px) break :existing;
 
                     // Everything matches, so we can just reset the surface
                     // and redraw.
@@ -2328,7 +2365,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
 
                 assert(self.overlay == null);
-                const new: Overlay = try .init(alloc, self.size);
+                const new: Overlay = try .init(alloc, self.size, gutter_offset_px);
                 self.overlay = new;
                 break :overlay &self.overlay.?;
             };

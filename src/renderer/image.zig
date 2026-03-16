@@ -212,10 +212,18 @@ pub const State = struct {
         );
         errdefer comptime unreachable;
 
+        // When the overlay is wider than the terminal grid (due to a
+        // gutter), place it at a negative grid x so the gutter area
+        // aligns with the left edge of the screen.
+        const gutter_cells: i32 = if (overlay.gutter_offset_px > 0 and overlay.cell_size.width > 0)
+            -@as(i32, @intCast(overlay.gutter_offset_px / overlay.cell_size.width))
+        else
+            0;
+
         // Setup our placement
         self.overlay_placements.appendAssumeCapacity(.{
             .image_id = .overlay,
-            .x = 0,
+            .x = gutter_cells,
             .y = 0,
             .z = 0,
             .width = pending.width,
