@@ -86,6 +86,14 @@ class PopupController: BaseTerminalController {
         window.delegate = self
         window.isRestorable = false
 
+        // Enable window transparency when the popup has an opacity override < 1.
+        // Without this, macOS treats the window as opaque and the desktop won't
+        // show through even though the Metal renderer draws at reduced alpha.
+        if let opacity = config.opacity, opacity < 1 {
+            window.isOpaque = false
+            window.backgroundColor = .white.withAlphaComponent(0.001)
+        }
+
         // Observe focus loss for autohide behavior.
         NotificationCenter.default.addObserver(
             self,
