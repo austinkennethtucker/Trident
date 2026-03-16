@@ -46,8 +46,55 @@ const ThemeListElement = struct {
     rank: ?f64 = null,
 
     fn lessThan(_: void, lhs: @This(), rhs: @This()) bool {
-        // TODO: use Unicode-aware comparison
-        return std.ascii.orderIgnoreCase(lhs.theme, rhs.theme) == .lt;
+        const uucode = @import("uucode");
+
+        var view_lhs = std.unicode.Utf8View.init(lhs.theme) catch return std.ascii.orderIgnoreCase(lhs.theme, rhs.theme) == .lt;
+        var view_rhs = std.unicode.Utf8View.init(rhs.theme) catch return std.ascii.orderIgnoreCase(lhs.theme, rhs.theme) == .lt;
+
+        var iter_lhs = view_lhs.iterator();
+        var iter_rhs = view_rhs.iterator();
+
+        var lhs_buf: [3]u21 = undefined;
+        var rhs_buf: [3]u21 = undefined;
+
+        var lhs_slice: []const u21 = &[_]u21{};
+        var rhs_slice: []const u21 = &[_]u21{};
+
+        while (true) {
+            if (lhs_slice.len == 0) {
+                if (iter_lhs.nextCodepoint()) |cp| {
+                    if (uucode.ascii.isAlphabetic(cp)) {
+                        lhs_buf[0] = uucode.ascii.toLower(cp);
+                        lhs_slice = lhs_buf[0..1];
+                    } else {
+                        lhs_slice = uucode.get(.case_folding_full, cp).with(&lhs_buf, cp);
+                    }
+                }
+            }
+            if (rhs_slice.len == 0) {
+                if (iter_rhs.nextCodepoint()) |cp| {
+                    if (uucode.ascii.isAlphabetic(cp)) {
+                        rhs_buf[0] = uucode.ascii.toLower(cp);
+                        rhs_slice = rhs_buf[0..1];
+                    } else {
+                        rhs_slice = uucode.get(.case_folding_full, cp).with(&rhs_buf, cp);
+                    }
+                }
+            }
+
+            if (lhs_slice.len == 0 and rhs_slice.len == 0) return false;
+            if (lhs_slice.len == 0) return true;
+            if (rhs_slice.len == 0) return false;
+
+            const c_lhs = lhs_slice[0];
+            const c_rhs = rhs_slice[0];
+
+            if (c_lhs < c_rhs) return true;
+            if (c_lhs > c_rhs) return false;
+
+            lhs_slice = lhs_slice[1..];
+            rhs_slice = rhs_slice[1..];
+        }
     }
 
     pub fn toUri(self: *const ThemeListElement, alloc: std.mem.Allocator) ![]const u8 {
