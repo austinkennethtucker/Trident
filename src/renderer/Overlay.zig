@@ -377,11 +377,207 @@ fn highlightViLineNumbers(
     state: *const terminal.RenderState,
     data: anytype,
 ) void {
-    _ = self;
-    _ = alloc;
-    _ = state;
-    _ = data;
-    // TODO: implement in next task
+    const viewport_rows = data.viewport_rows;
+    const cursor_row = data.cursor_row;
+    const top_abs = data.viewport_top_abs_row;
+
+    if (state.cols < 4) return;
+
+    const max_number: usize = switch (data.mode) {
+        .relative => if (viewport_rows > 1) viewport_rows - 1 else 1,
+        .absolute => top_abs + viewport_rows,
+    };
+    const gw = gutterWidth(max_number);
+
+    if (gw * 3 > state.cols) return;
+
+    // Skip gutter background on bottom row if mode indicator active
+    const indicator_row: ?usize = if (data.has_mode_indicator and state.rows > 0) state.rows - 1 else null;
+
+    // Draw gutter background (30% black) using paintStride (direct pixel replacement)
+    const bg_color = gutterBackground();
+    const gutter_px_width: usize = gw * self.cell_size.width;
+    for (0..viewport_rows) |row| {
+        if (indicator_row) |ir| {
+            if (row == ir) continue;
+        }
+        const py: i32 = std.math.cast(i32, row * self.cell_size.height) orelse continue;
+        for (0..self.cell_size.height) |dy| {
+            const y: i32 = py +| @as(i32, std.math.cast(i32, dy) orelse continue);
+            self.surface.paintStride(0, y, gutter_px_width, bg_color);
+        }
+    }
+
+    // Draw separator line (1px wide at right edge of gutter)
+    const sep_color = gutterSeparator();
+    const sep_x: i32 = std.math.cast(i32, gutter_px_width -| 1) orelse return;
+    const total_height = viewport_rows * self.cell_size.height;
+    for (0..total_height) |dy| {
+        const y: i32 = std.math.cast(i32, dy) orelse continue;
+        self.surface.paintStride(sep_x, y, 1, sep_color);
+    }
+
+    // Draw line numbers
+    var ctx: z2d.Context = .init(alloc, &self.surface);
+    defer ctx.deinit();
+    ctx.setAntiAliasingMode(.none);
+    ctx.setHairline(false);
+
+    for (0..viewport_rows) |row| {
+        const number: usize = if (row == cursor_row)
+            top_abs + row + 1
+        else switch (data.mode) {
+            .relative => if (row > cursor_row) row - cursor_row else cursor_row - row,
+            .absolute => top_abs + row + 1,
+        };
+
+        const color = if (row == cursor_row) gutterBrightDigit() else gutterDimDigit();
+
+        self.drawDigitString(&ctx, number, row, gw, color) catch |err| {
+            log.warn("Error drawing line number: {}", .{err});
+            return;
+        };
+    }
+}
+
+// -- Digit drawing (7-segment style) --
+
+const DigitSegments = struct {
+    top: bool = false,
+    top_left: bool = false,
+    top_right: bool = false,
+    middle: bool = false,
+    bottom_left: bool = false,
+    bottom_right: bool = false,
+    bottom: bool = false,
+};
+
+fn digitSegments(d: u8) DigitSegments {
+    return switch (d) {
+        0 => .{ .top = true, .top_left = true, .top_right = true, .bottom_left = true, .bottom_right = true, .bottom = true },
+        1 => .{ .top_right = true, .bottom_right = true },
+        2 => .{ .top = true, .top_right = true, .middle = true, .bottom_left = true, .bottom = true },
+        3 => .{ .top = true, .top_right = true, .middle = true, .bottom_right = true, .bottom = true },
+        4 => .{ .top_left = true, .top_right = true, .middle = true, .bottom_right = true },
+        5 => .{ .top = true, .top_left = true, .middle = true, .bottom_right = true, .bottom = true },
+        6 => .{ .top = true, .top_left = true, .middle = true, .bottom_left = true, .bottom_right = true, .bottom = true },
+        7 => .{ .top = true, .top_right = true, .bottom_right = true },
+        8 => .{ .top = true, .top_left = true, .top_right = true, .middle = true, .bottom_left = true, .bottom_right = true, .bottom = true },
+        9 => .{ .top = true, .top_left = true, .top_right = true, .middle = true, .bottom_right = true, .bottom = true },
+        else => .{},
+    };
+}
+
+/// Draw a single digit (0-9) within the given pixel bounding box.
+/// Uses z2d line paths in a 7-segment style (no font dependency).
+fn drawDigit(
+    ctx: *z2d.Context,
+    bx: f64,
+    by: f64,
+    bw: f64,
+    bh: f64,
+    digit: u8,
+) !void {
+    const mx = bw * 0.15;
+    const my = bh * 0.10;
+    const x0 = bx + mx;
+    const x1 = bx + bw - mx;
+    const y0 = by + my;
+    const y1 = by + bh - my;
+    const ym = by + bh / 2.0;
+
+    const segs = digitSegments(digit);
+
+    if (segs.top) { try ctx.moveTo(x0, y0); try ctx.lineTo(x1, y0); }
+    if (segs.top_left) { try ctx.moveTo(x0, y0); try ctx.lineTo(x0, ym); }
+    if (segs.top_right) { try ctx.moveTo(x1, y0); try ctx.lineTo(x1, ym); }
+    if (segs.middle) { try ctx.moveTo(x0, ym); try ctx.lineTo(x1, ym); }
+    if (segs.bottom_left) { try ctx.moveTo(x0, ym); try ctx.lineTo(x0, y1); }
+    if (segs.bottom_right) { try ctx.moveTo(x1, ym); try ctx.lineTo(x1, y1); }
+    if (segs.bottom) { try ctx.moveTo(x0, y1); try ctx.lineTo(x1, y1); }
+}
+
+/// Draw a number as right-aligned digit string in the gutter area.
+/// This is the swappable interface for digit rendering.
+fn drawDigitString(
+    self: *Overlay,
+    ctx: *z2d.Context,
+    number: usize,
+    row: usize,
+    gutter_width_cells: usize,
+    color: z2d.Pixel,
+) !void {
+    var digits: [6]u8 = undefined;
+    var n = number;
+    var digit_count: usize = 0;
+    if (n == 0) {
+        digits[0] = 0;
+        digit_count = 1;
+    } else {
+        while (n > 0 and digit_count < digits.len) : (digit_count += 1) {
+            digits[digit_count] = @intCast(n % 10);
+            n /= 10;
+        }
+    }
+
+    const num_cols = gutter_width_cells -| 1; // columns for digits (last col is separator)
+    if (digit_count > num_cols) return;
+
+    const cell_w: f64 = @floatFromInt(self.cell_size.width);
+    const cell_h: f64 = @floatFromInt(self.cell_size.height);
+    const row_y: f64 = @floatFromInt(row * self.cell_size.height);
+
+    ctx.setSourceToPixel(color);
+    ctx.setLineWidth(1.5);
+
+    var i: usize = 0;
+    while (i < digit_count) : (i += 1) {
+        const col = num_cols - 1 - i;
+        const col_x: f64 = @floatFromInt(col * self.cell_size.width);
+        try drawDigit(ctx, col_x, row_y, cell_w, cell_h, digits[i]);
+    }
+
+    try ctx.stroke();
+}
+
+// -- Gutter color helpers --
+
+/// Gutter background: 30% black overlay (darkened/recessed).
+fn gutterBackground() z2d.Pixel {
+    var rgba: z2d.pixel.RGBA = .fromPixel((z2d.pixel.RGB{ .r = 0, .g = 0, .b = 0 }).asPixel());
+    rgba.a = 77; // 30% of 255
+    return rgba.multiply().asPixel();
+}
+
+/// Gutter separator: 20% white vertical line.
+fn gutterSeparator() z2d.Pixel {
+    var rgba: z2d.pixel.RGBA = .fromPixel((z2d.pixel.RGB{ .r = 255, .g = 255, .b = 255 }).asPixel());
+    rgba.a = 51; // 20% of 255
+    return rgba.multiply().asPixel();
+}
+
+/// Relative line number color: 40% white.
+fn gutterDimDigit() z2d.Pixel {
+    var rgba: z2d.pixel.RGBA = .fromPixel((z2d.pixel.RGB{ .r = 255, .g = 255, .b = 255 }).asPixel());
+    rgba.a = 102; // 40% of 255
+    return rgba.multiply().asPixel();
+}
+
+/// Current line number color: bright white.
+fn gutterBrightDigit() z2d.Pixel {
+    var rgba: z2d.pixel.RGBA = .fromPixel((z2d.pixel.RGB{ .r = 255, .g = 255, .b = 255 }).asPixel());
+    rgba.a = 230; // ~90% of 255
+    return rgba.multiply().asPixel();
+}
+
+/// Compute the gutter width (in cells) for the given maximum number.
+/// Returns digit columns + 1 separator column.
+fn gutterWidth(max_number: usize) usize {
+    if (max_number == 0) return 2;
+    var digits: usize = 0;
+    var n = max_number;
+    while (n > 0) : (digits += 1) n /= 10;
+    return digits + 1;
 }
 
 /// Blue fill for visual mode indicator (distinct from normal mode amber).
