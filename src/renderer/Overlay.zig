@@ -411,10 +411,16 @@ fn highlightViLineNumbers(
     // Draw separator line (1px wide at right edge of gutter)
     const sep_color = gutterSeparator();
     const sep_x: i32 = std.math.cast(i32, gutter_px_width -| 1) orelse return;
-    const total_height = viewport_rows * self.cell_size.height;
-    for (0..total_height) |dy| {
-        const y: i32 = std.math.cast(i32, dy) orelse continue;
-        self.surface.paintStride(sep_x, y, 1, sep_color);
+    for (0..viewport_rows) |row| {
+        // Skip indicator row to preserve mode indicator visual
+        if (indicator_row) |ir| {
+            if (row == ir) continue;
+        }
+        const py: i32 = std.math.cast(i32, row * self.cell_size.height) orelse continue;
+        for (0..self.cell_size.height) |dy| {
+            const y: i32 = py +| @as(i32, std.math.cast(i32, dy) orelse continue);
+            self.surface.paintStride(sep_x, y, 1, sep_color);
+        }
     }
 
     // Draw line numbers
