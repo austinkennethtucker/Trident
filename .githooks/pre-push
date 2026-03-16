@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# pre-push hook: block pushes to upstream (ghostty-org/ghostty).
+# All pushes must target origin (austinkennethtucker/ghostty).
+#
+# Install: git config core.hooksPath .githooks
+
+remote="$1"
+url="$2"
+
+if [[ "$url" == *"ghostty-org"* ]]; then
+  echo "ERROR: Push to upstream (ghostty-org/ghostty) blocked."
+  echo "All pushes must target origin (austinkennethtucker/ghostty)."
+  exit 1
+fi
