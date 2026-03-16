@@ -287,6 +287,26 @@ pub fn resize(
     };
 }
 
+/// Send a detach_session frame to the daemon over the socket.
+/// Called from the IO thread, so this is safe (no concurrent writes).
+pub fn detachSession(self: *Mux) void {
+    if (self.socket_fd == -1) return;
+
+    var payload_buf: [256]u8 = undefined;
+    var payload_fbs = std.io.fixedBufferStream(&payload_buf);
+    Protocol.writeString(payload_fbs.writer(), self.session_name) catch |err| {
+        log.warn("failed to build detach payload err={}", .{err});
+        return;
+    };
+
+    const payload = payload_buf[0..payload_fbs.pos];
+    sendFrame(self.socket_fd, @intFromEnum(Protocol.ClientMsg.detach_session), payload) catch |err| {
+        log.warn("failed to send detach_session to daemon err={}", .{err});
+    };
+
+    log.info("sent detach_session for '{s}' via IO thread", .{self.session_name});
+}
+
 pub fn queueWrite(
     self: *Mux,
     alloc: Allocator,

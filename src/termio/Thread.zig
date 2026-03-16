@@ -351,6 +351,7 @@ fn drainMailbox(
                     self.flags.linefeed_mode,
                 );
             },
+            .detach_session => io.detachSession(),
         }
     }
 

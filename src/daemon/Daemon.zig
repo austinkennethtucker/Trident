@@ -359,8 +359,11 @@ fn handleClientMessage(
             const name = try Protocol.readString(self.alloc, reader);
             defer self.alloc.free(name);
 
-            if (self.sessions.contains(name)) {
-                return self.sendError(client_fd, "create_session", "session already exists");
+            if (self.sessions.get(name)) |existing| {
+                // Idempotent: return session_info for the existing session.
+                log.info("create_session idempotent hit for '{s}'", .{name});
+                try self.sendSessionInfo(client_fd, existing);
+                return;
             }
 
             const session = try self.alloc.create(Session);
@@ -466,10 +469,15 @@ fn handleClientMessage(
                 return self.sendError(client_fd, "input", "terminal not found");
             };
 
-            // Write the input data to the terminal's PTY master fd.
-            _ = posix.write(terminal.pty_fd, remaining) catch |err| {
-                log.warn("pty write failed for terminal {d}: {}", .{ tid, err });
-            };
+            // Write the input data to the terminal's PTY master fd,
+            // looping to handle short writes.
+            var written: usize = 0;
+            while (written < remaining.len) {
+                written += posix.write(terminal.pty_fd, remaining[written..]) catch |err| {
+                    log.warn("pty write failed for terminal {d}: {}", .{ tid, err });
+                    break;
+                };
+            }
         },
 
         .resize => {

@@ -82,6 +82,11 @@ pub const Message = union(enum) {
     /// Write where the data is allocated and must be freed.
     write_alloc: WriteReq.Alloc,
 
+    /// Detach from the current daemon session (mux backend only).
+    /// The mux backend already knows its session name and socket fd,
+    /// so no payload is needed.
+    detach_session: void,
+
     /// Return a write request for the given data. This will use
     /// write_small if it fits or write_alloc otherwise. This should NOT
     /// be used for stable pointers which can be manually set to write_stable.

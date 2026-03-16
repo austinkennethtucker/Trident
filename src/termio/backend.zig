@@ -81,6 +81,13 @@ pub const Backend = union(Kind) {
         }
     }
 
+    pub fn detachSession(self: *Backend) void {
+        switch (self.*) {
+            .exec => {}, // Not in session mode — no-op.
+            .mux => |*mux| mux.detachSession(),
+        }
+    }
+
     pub fn queueWrite(
         self: *Backend,
         alloc: Allocator,
