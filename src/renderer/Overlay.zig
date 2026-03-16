@@ -435,10 +435,12 @@ fn highlightGridRect(
     ctx.setSourceToPixel(fill_color);
     try ctx.fill();
 
-    // Border
-    ctx.setLineWidth(1);
-    ctx.setSourceToPixel(border_color);
-    try ctx.stroke();
+    // Border (skip when same as fill to avoid alpha doubling at edges)
+    if (!std.meta.eql(border_color, fill_color)) {
+        ctx.setLineWidth(1);
+        ctx.setSourceToPixel(border_color);
+        try ctx.stroke();
+    }
 }
 
 /// Creates a rectangle for highlighting a region. x/y are grid cells and
