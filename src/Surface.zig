@@ -635,48 +635,74 @@ pub fn init(
     // This separate block ({}) is important because our errdefers must
     // be scoped here to be valid.
     {
-        var env = rt_surface.defaultTermioEnv() catch |err| env: {
-            // If an error occurs, we don't want to block surface startup.
-            log.warn("error getting env map for surface err={}", .{err});
-            break :env internal_os.getEnvMap(alloc) catch
-                std.process.EnvMap.init(alloc);
-        };
-        errdefer env.deinit();
-
-        // don't leak GHOSTTY_LOG to any subprocesses
-        env.remove("GHOSTTY_LOG");
-
-        // Initialize our IO backend
-        var io_exec = try termio.Exec.init(alloc, .{
-            .command = command,
-            .env = env,
-            .env_override = config.env,
-            .shell_integration = config.@"shell-integration",
-            .shell_integration_features = config.@"shell-integration-features",
-            .cursor_blink = config.@"cursor-style-blink",
-            .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
-            .resources_dir = global_state.resources_dir.host(),
-            .term = config.term,
-            .rt_pre_exec_info = .init(config),
-            .rt_post_fork_info = .init(config),
-        });
-        errdefer io_exec.deinit();
+        // Check if we're in session mode (TRIDENT_SESSION env var is set).
+        // If so, use the mux backend to connect to the daemon instead of
+        // spawning a local PTY process.
+        const session_name = std.posix.getenv("TRIDENT_SESSION");
 
         // Initialize our IO mailbox
         var io_mailbox = try termio.Mailbox.initSPSC(alloc);
         errdefer io_mailbox.deinit(alloc);
 
-        try termio.Termio.init(&self.io, alloc, .{
-            .size = size,
-            .full_config = config,
-            .config = try termio.Termio.DerivedConfig.init(alloc, config),
-            .backend = .{ .exec = io_exec },
-            .mailbox = io_mailbox,
-            .renderer_state = &self.renderer_state,
-            .renderer_wakeup = render_thread.wakeup,
-            .renderer_mailbox = render_thread.mailbox,
-            .surface_mailbox = .{ .surface = self, .app = app_mailbox },
-        });
+        if (session_name) |sname| {
+            // Session mode: use the mux backend to connect to the daemon.
+            var io_mux = try termio.Mux.init(alloc, .{
+                .session_name = sname,
+            });
+            errdefer io_mux.deinit();
+
+            try termio.Termio.init(&self.io, alloc, .{
+                .size = size,
+                .full_config = config,
+                .config = try termio.Termio.DerivedConfig.init(alloc, config),
+                .backend = .{ .mux = io_mux },
+                .mailbox = io_mailbox,
+                .renderer_state = &self.renderer_state,
+                .renderer_wakeup = render_thread.wakeup,
+                .renderer_mailbox = render_thread.mailbox,
+                .surface_mailbox = .{ .surface = self, .app = app_mailbox },
+            });
+        } else {
+            // Normal mode: spawn a local PTY process.
+            var env = rt_surface.defaultTermioEnv() catch |err| env: {
+                // If an error occurs, we don't want to block surface startup.
+                log.warn("error getting env map for surface err={}", .{err});
+                break :env internal_os.getEnvMap(alloc) catch
+                    std.process.EnvMap.init(alloc);
+            };
+            errdefer env.deinit();
+
+            // don't leak GHOSTTY_LOG to any subprocesses
+            env.remove("GHOSTTY_LOG");
+
+            // Initialize our IO backend
+            var io_exec = try termio.Exec.init(alloc, .{
+                .command = command,
+                .env = env,
+                .env_override = config.env,
+                .shell_integration = config.@"shell-integration",
+                .shell_integration_features = config.@"shell-integration-features",
+                .cursor_blink = config.@"cursor-style-blink",
+                .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
+                .resources_dir = global_state.resources_dir.host(),
+                .term = config.term,
+                .rt_pre_exec_info = .init(config),
+                .rt_post_fork_info = .init(config),
+            });
+            errdefer io_exec.deinit();
+
+            try termio.Termio.init(&self.io, alloc, .{
+                .size = size,
+                .full_config = config,
+                .config = try termio.Termio.DerivedConfig.init(alloc, config),
+                .backend = .{ .exec = io_exec },
+                .mailbox = io_mailbox,
+                .renderer_state = &self.renderer_state,
+                .renderer_wakeup = render_thread.wakeup,
+                .renderer_mailbox = render_thread.mailbox,
+                .surface_mailbox = .{ .surface = self, .app = app_mailbox },
+            });
+        }
     }
     // Outside the block, IO has now taken ownership of our temporary state
     // so we can just defer this and not the subcomponents.
@@ -1329,6 +1355,7 @@ fn childExitedAbnormally(
     // Build up our command for the error message
     const command = try std.mem.join(alloc, " ", switch (self.io.backend) {
         .exec => |*exec| exec.subprocess.args,
+        .mux => &.{"(daemon session)"},
     });
     const runtime_str = try std.fmt.allocPrint(alloc, "{d} ms", .{info.runtime_ms});
 
@@ -6205,6 +6232,28 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .close_surface => self.close(),
 
+        .detach_session => {
+            // Only meaningful when the backend is mux (session mode).
+            switch (self.io.backend) {
+                .mux => {
+                    // Route through the IO thread so we don't write to the
+                    // daemon socket from the App thread (the IO thread also
+                    // writes to the same fd).
+                    self.queueIo(.{ .detach_session = {} }, .unlocked);
+
+                    log.info("detaching from session (via IO thread)", .{});
+
+                    // Close the surface (the session continues on the daemon).
+                    self.close();
+                },
+                .exec => {
+                    // Not in session mode — do nothing.
+                    log.info("detach_session ignored: not in session mode", .{});
+                    return false;
+                },
+            }
+        },
+
         .close_window => return try self.rt_app.performAction(
             .{ .surface = self },
             .close_window,
@@ -6375,6 +6424,7 @@ fn closingAction(action: input.Binding.Action) bool {
         .close_surface,
         .close_window,
         .close_tab,
+        .detach_session,
         => true,
 
         else => false,

@@ -425,6 +425,12 @@ pub inline fn queueWrite(
     try self.backend.queueWrite(self.alloc, td, data, linefeed);
 }
 
+/// Detach from the daemon session. Only meaningful for the mux backend;
+/// exec backend is a no-op.
+pub fn detachSession(self: *Termio) void {
+    self.backend.detachSession();
+}
+
 /// Update the configuration.
 pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !void {
     // The remainder of this function is modifying terminal state or

@@ -19,6 +19,10 @@ const crash_report = @import("crash_report.zig");
 const show_face = @import("show_face.zig");
 const boo = @import("boo.zig");
 const new_window = @import("new_window.zig");
+const attach_action = @import("attach.zig");
+const detach_action = @import("detach.zig");
+const list_sessions_action = @import("list_sessions.zig");
+const kill_session_action = @import("kill_session.zig");
 
 /// Special commands that can be invoked via CLI flags. These are all
 /// invoked by using `+<action>` as a CLI flag. The only exception is
@@ -68,6 +72,18 @@ pub const Action = enum {
 
     // Use IPC to tell the running Ghostty to open a new window.
     @"new-window",
+
+    // Reattach to a detached session.
+    attach,
+
+    // Detach the current session.
+    detach,
+
+    // List all active sessions.
+    @"list-sessions",
+
+    // Kill a session and its processes.
+    @"kill-session",
 
     pub fn detectSpecialCase(arg: []const u8) ?SpecialCase(Action) {
         // If we see a "-e" and we haven't seen a command yet, then
@@ -147,6 +163,10 @@ pub const Action = enum {
             .@"show-face" => try show_face.run(alloc),
             .boo => try boo.run(alloc),
             .@"new-window" => try new_window.run(alloc),
+            .attach => try attach_action.run(alloc),
+            .detach => try detach_action.run(alloc),
+            .@"list-sessions" => try list_sessions_action.run(alloc),
+            .@"kill-session" => try kill_session_action.run(alloc),
         };
     }
 
@@ -186,6 +206,10 @@ pub const Action = enum {
                 .@"show-face" => show_face.Options,
                 .boo => boo.Options,
                 .@"new-window" => new_window.Options,
+                .attach => attach_action.Options,
+                .detach => detach_action.Options,
+                .@"list-sessions" => list_sessions_action.Options,
+                .@"kill-session" => kill_session_action.Options,
             };
         }
     }

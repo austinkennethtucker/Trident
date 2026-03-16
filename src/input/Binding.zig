@@ -935,6 +935,17 @@ pub const Action = union(enum) {
     /// Quit Ghostty.
     quit,
 
+    /// Detach the current session.
+    ///
+    /// When the terminal is connected to a daemon session (via `--session`),
+    /// this sends a detach message to the daemon and closes the current
+    /// surface. The session continues running in the background and can be
+    /// reattached later with `ghostty +attach --session=<name>`.
+    ///
+    /// If the terminal is not in session mode (i.e. using a local PTY),
+    /// this action has no effect.
+    detach_session,
+
     /// Crash Ghostty in the desired thread for the focused surface.
     ///
     /// WARNING: This is a hard crash (panic) and data can be lost.
@@ -1399,6 +1410,7 @@ pub const Action = union(enum) {
             .deactivate_key_table,
             .deactivate_all_key_tables,
             .end_key_sequence,
+            .detach_session,
             .crash,
             => .surface,
 

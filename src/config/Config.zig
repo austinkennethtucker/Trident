@@ -2230,6 +2230,16 @@ keybind: Keybinds = .{},
 /// This is currently only supported on macOS. This has no effect on Linux.
 @"window-save-state": WindowSaveState = .default,
 
+/// Control session layout restoration when the daemon restarts.
+///
+/// When set to `layout`, saved session layouts (tabs, splits, working
+/// directories, commands) are restored with fresh processes when the
+/// daemon is not running. When set to `off`, sessions always start
+/// clean.
+///
+/// Only applies when using `--session` mode.
+@"session-restore": SessionRestore = .off,
+
 /// Resize the window in discrete increments of the focused surface's cell size.
 /// If this is disabled, surfaces are resized in pixel increments. Currently
 /// only supported on macOS.
@@ -5560,6 +5570,11 @@ pub const ViModeLineNumbers = enum {
     off,
     relative,
     absolute,
+};
+
+pub const SessionRestore = enum {
+    off,
+    layout,
 };
 
 pub const WindowSubtitle = enum {

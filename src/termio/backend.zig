@@ -10,28 +10,33 @@ const termio = @import("../termio.zig");
 const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
 
 /// The kinds of backends.
-pub const Kind = enum { exec };
+pub const Kind = enum { exec, mux };
 
 /// Configuration for the various backend types.
 pub const Config = union(Kind) {
     /// Exec uses posix exec to run a command with a pty.
     exec: termio.Exec.Config,
+    /// Mux connects to the daemon over a Unix socket (session mode).
+    mux: termio.Mux.Config,
 };
 
 /// Backend implementations. A backend is responsible for owning the pty
 /// behavior and providing read/write capabilities.
 pub const Backend = union(Kind) {
     exec: termio.Exec,
+    mux: termio.Mux,
 
     pub fn deinit(self: *Backend) void {
         switch (self.*) {
             .exec => |*exec| exec.deinit(),
+            .mux => |*mux| mux.deinit(),
         }
     }
 
     pub fn initTerminal(self: *Backend, t: *terminal.Terminal) void {
         switch (self.*) {
             .exec => |*exec| exec.initTerminal(t),
+            .mux => |*mux| mux.initTerminal(t),
         }
     }
 
@@ -43,12 +48,14 @@ pub const Backend = union(Kind) {
     ) !void {
         switch (self.*) {
             .exec => |*exec| try exec.threadEnter(alloc, io, td),
+            .mux => |*mux| try mux.threadEnter(alloc, io, td),
         }
     }
 
     pub fn threadExit(self: *Backend, td: *termio.Termio.ThreadData) void {
         switch (self.*) {
             .exec => |*exec| exec.threadExit(td),
+            .mux => |*mux| mux.threadExit(td),
         }
     }
 
@@ -59,6 +66,7 @@ pub const Backend = union(Kind) {
     ) !void {
         switch (self.*) {
             .exec => |*exec| try exec.focusGained(td, focused),
+            .mux => |*mux| try mux.focusGained(td, focused),
         }
     }
 
@@ -69,6 +77,14 @@ pub const Backend = union(Kind) {
     ) !void {
         switch (self.*) {
             .exec => |*exec| try exec.resize(grid_size, screen_size),
+            .mux => |*mux| try mux.resize(grid_size, screen_size),
+        }
+    }
+
+    pub fn detachSession(self: *Backend) void {
+        switch (self.*) {
+            .exec => {}, // Not in session mode — no-op.
+            .mux => |*mux| mux.detachSession(),
         }
     }
 
@@ -81,6 +97,7 @@ pub const Backend = union(Kind) {
     ) !void {
         switch (self.*) {
             .exec => |*exec| try exec.queueWrite(alloc, td, data, linefeed),
+            .mux => |*mux| try mux.queueWrite(alloc, td, data, linefeed),
         }
     }
 
@@ -98,6 +115,12 @@ pub const Backend = union(Kind) {
                 exit_code,
                 runtime_ms,
             ),
+            .mux => |*mux| try mux.childExitedAbnormally(
+                gpa,
+                t,
+                exit_code,
+                runtime_ms,
+            ),
         }
     }
 };
@@ -105,15 +128,19 @@ pub const Backend = union(Kind) {
 /// Termio thread data. See termio.ThreadData for docs.
 pub const ThreadData = union(Kind) {
     exec: termio.Exec.ThreadData,
+    mux: termio.Mux.ThreadData,
 
     pub fn deinit(self: *ThreadData, alloc: Allocator) void {
         switch (self.*) {
             .exec => |*exec| exec.deinit(alloc),
+            .mux => |*mux| mux.deinit(alloc),
         }
     }
 
     pub fn changeConfig(self: *ThreadData, config: *termio.DerivedConfig) void {
-        _ = self;
-        _ = config;
+        switch (self.*) {
+            .exec => {},
+            .mux => |*mux| mux.changeConfig(config),
+        }
     }
 };
