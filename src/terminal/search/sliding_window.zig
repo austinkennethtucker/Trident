@@ -90,10 +90,6 @@ pub const SlidingWindow = struct {
         node: *PageList.List.Node,
         serial: u64,
         cell_map: std.ArrayList(point.Coordinate),
-
-        pub fn deinit(self: *Meta, alloc: Allocator) void {
-            self.cell_map.deinit(alloc);
-        }
     };
 
     pub fn init(
@@ -134,15 +130,11 @@ pub const SlidingWindow = struct {
         self.chunk_buf.deinit(self.alloc);
         self.data.deinit(self.alloc);
 
-        var meta_it = self.meta.iterator(.forward);
-        while (meta_it.next()) |meta| meta.deinit(self.alloc);
         self.meta.deinit(self.alloc);
     }
 
     /// Clear all data but retain allocated capacity.
     pub fn clearAndRetainCapacity(self: *SlidingWindow) void {
-        var meta_it = self.meta.iterator(.forward);
-        while (meta_it.next()) |meta| meta.deinit(self.alloc);
         self.meta.clear();
         self.data.clear();
         self.data_offset = 0;
@@ -268,7 +260,6 @@ pub const SlidingWindow = struct {
             for (0..prune_count) |_| {
                 const meta = meta_it.next().?;
                 prune_data_len += meta.cell_map.items.len;
-                meta.deinit(self.alloc);
             }
             self.meta.deleteOldest(prune_count);
             self.data.deleteOldest(prune_data_len);
@@ -440,14 +431,11 @@ pub const SlidingWindow = struct {
 
         // If we went beyond our initial meta node we can prune.
         if (tl.prune.meta > 0) {
-            // Deinit all our memory in the meta blocks prior to our
-            // match.
             var meta_it = self.meta.iterator(.forward);
             var meta_consumed: usize = 0;
             for (0..tl.prune.meta) |_| {
                 const meta: *Meta = meta_it.next().?;
                 meta_consumed += meta.cell_map.items.len;
-                meta.deinit(self.alloc);
             }
             if (comptime std.debug.runtime_safety) {
                 assert(meta_it.idx == tl.prune.meta);
@@ -533,7 +521,6 @@ pub const SlidingWindow = struct {
             .serial = node.serial,
             .cell_map = .empty,
         };
-        errdefer meta.deinit(self.alloc);
 
         // This is suboptimal but we need to encode the page once to
         // temporary memory, and then copy it into our circular buffer.
