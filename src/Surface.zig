@@ -127,6 +127,10 @@ inspector: ?*inspectorpkg.Inspector = null,
 /// Vi mode state for scrollback navigation.
 vi_mode: ?ViMode = null,
 
+/// Whether vi-mode line numbers are currently visible (runtime toggle).
+/// Defaults to true on vi-mode entry (auto-activate).
+vi_line_numbers_visible: bool = true,
+
 /// All our sizing information.
 size: rendererpkg.Size,
 
@@ -2597,6 +2601,23 @@ fn updateViModeRenderState(self: *Surface) void {
 
     const vp_point = screen.pages.pointFromPin(.viewport, vi.cursor_pin.*);
 
+    // Compute viewport top absolute row for line numbers
+    const viewport_top = screen.pages.getTopLeft(.viewport);
+    const viewport_top_abs_row: ?usize = if (screen.pages.pointFromPin(.screen, viewport_top)) |sp|
+        @intCast(sp.screen.y)
+    else
+        null;
+
+    // Determine line number mode: config + runtime toggle
+    const line_numbers: rendererpkg.State.ViMode.LineNumbers = if (self.vi_line_numbers_visible)
+        switch (self.config.vi_mode_line_numbers) {
+            .off => .off,
+            .relative => .relative,
+            .absolute => .absolute,
+        }
+    else
+        .off;
+
     self.renderer_state.vi_mode = .{
         .active = true,
         .cursor_row = if (vp_point) |pt| @intCast(pt.viewport.y) else null,
@@ -2607,6 +2628,8 @@ fn updateViModeRenderState(self: *Surface) void {
             .visual_line => "-- VISUAL LINE --",
             .visual_block => "-- V-BLOCK --",
         },
+        .line_numbers = line_numbers,
+        .viewport_top_abs_row = viewport_top_abs_row,
     };
 }
 
@@ -6116,6 +6139,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // If already .pin or .top, viewport is already frozen.
 
             self.vi_mode = ViMode.init(cursor_pin);
+            self.vi_line_numbers_visible = true;
             self.updateViModeRenderState();
             self.queueRender() catch {};
         },
