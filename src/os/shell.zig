@@ -130,6 +130,17 @@ pub const ShellEscapeWriter = struct {
                 '|',
                 '(',
                 ')',
+                ';',
+                '&',
+                '<',
+                '>',
+                '[',
+                ']',
+                '{',
+                '}',
+                '~',
+                '#',
+                '!',
                 => &[_]u8{ '\\', byte },
                 else => &[_]u8{byte},
             };
@@ -193,4 +204,12 @@ test "shell escape 7" {
     var shell: ShellEscapeWriter = .init(&writer);
     try shell.writer.writeAll("a(1)");
     try testing.expectEqualStrings("a\\(1\\)", writer.buffered());
+}
+
+test "shell escape extra metacharacters" {
+    var buf: [128]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    var shell: ShellEscapeWriter = .init(&writer);
+    try shell.writer.writeAll("a;&<>[]{}~#!");
+    try testing.expectEqualStrings("a\\;\\&\\<\\>\\[\\]\\{\\}\\~\\#\\!", writer.buffered());
 }
