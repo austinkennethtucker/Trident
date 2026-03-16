@@ -5,3 +5,5 @@
 /// domain socket and exchange length-prefixed binary frames defined by
 /// the wire protocol.
 pub const Protocol = @import("daemon/Protocol.zig");
+pub const Session = @import("daemon/Session.zig");
+pub const Terminal = @import("daemon/Terminal.zig");
