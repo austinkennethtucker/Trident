@@ -429,6 +429,9 @@ fn highlightViLineNumbers(
     ctx.setAntiAliasingMode(.none);
     ctx.setHairline(false);
 
+    const bright_color = gutterBrightDigit();
+    const dim_color = gutterDimDigit();
+
     for (0..viewport_rows) |row| {
         const number: usize = if (row == cursor_row)
             top_abs + row + 1
@@ -437,7 +440,7 @@ fn highlightViLineNumbers(
             .absolute => top_abs + row + 1,
         };
 
-        const color = if (row == cursor_row) gutterBrightDigit() else gutterDimDigit();
+        const color = if (row == cursor_row) bright_color else dim_color;
 
         self.drawDigitString(&ctx, number, row, gw, color) catch |err| {
             log.warn("Error drawing line number: {}", .{err});
@@ -513,7 +516,7 @@ fn drawDigitString(
     gutter_width_cells: usize,
     color: z2d.Pixel,
 ) !void {
-    var digits: [6]u8 = undefined;
+    var digits: [20]u8 = undefined;
     var n = number;
     var digit_count: usize = 0;
     if (n == 0) {
