@@ -115,17 +115,25 @@ Config changes to `vi-mode-line-numbers` take effect on the next render frame. I
 
 ### Render State Extension
 
-Three new fields on `State.zig`'s `ViMode` struct:
+Two new fields on `State.zig`'s `ViMode` struct:
 
 - `line_numbers: enum { off, relative, absolute }` — active mode (reflects config + runtime toggle)
-- `cursor_viewport_row: ?usize` — cursor's row in viewport-relative coordinates (row 0 = top of visible area). Used to compute relative distances. This is the same coordinate space as the existing `cursor_row` field.
-- `viewport_top_abs_row: ?usize` — absolute scrollback row of the viewport's top-left corner, computed via `pointFromPin(.screen, viewport_top_pin)`. Used to derive the absolute row number of any visible line: `viewport_top_abs_row + viewport_row_index`.
+- `viewport_top_abs_row: ?usize` — absolute scrollback row of the viewport's top-left corner. Used to derive the absolute row number of any visible line: `viewport_top_abs_row + viewport_row_index`.
+
+The existing `cursor_row: ?usize` field (already in `ViMode`) provides the cursor's viewport-relative row. No new field is needed for this — it is reused directly.
 
 **Coordinate spaces (clarification):**
-- **Viewport-relative** (`pointFromPin(.viewport, pin)`): Row 0 is the top of the visible area. Used for relative distance computation and positioning within the overlay surface.
+- **Viewport-relative** (`pointFromPin(.viewport, pin)`): Row 0 is the top of the visible area. Used for relative distance computation and positioning within the overlay surface. The existing `cursor_row` field is in this space.
 - **Scrollback-absolute** (`pointFromPin(.screen, pin)`): Row 0 is the very first line in the scrollback history. Used for displaying absolute line numbers.
 
-The cursor's absolute row for display = `viewport_top_abs_row + cursor_viewport_row`.
+The cursor's absolute row for display = `viewport_top_abs_row + cursor_row`.
+
+**How to compute `viewport_top_abs_row` in `updateViModeRenderState()`:**
+```zig
+const viewport_top = screen.pages.getTopLeft(.viewport);
+const screen_point = screen.pages.pointFromPin(.screen, viewport_top);
+// viewport_top_abs_row = screen_point.screen.y
+```
 
 ### Feature Variant Payload
 
@@ -134,11 +142,13 @@ The `.vi_line_numbers` variant in `Overlay.Feature` carries its data as payload:
 ```zig
 vi_line_numbers: struct {
     mode: enum { relative, absolute },
-    cursor_row: usize,           // viewport-relative
-    viewport_top_abs_row: usize, // scrollback-absolute row of viewport top
-    viewport_rows: usize,        // total visible rows
+    cursor_row: usize,           // viewport-relative (from ViMode.cursor_row)
+    viewport_top_abs_row: usize, // scrollback-absolute row of viewport top (from ViMode.viewport_top_abs_row)
+    viewport_rows: usize,        // total visible rows (from terminal.rows, already in render state)
 },
 ```
+
+**Null guard:** `generic.zig` only appends `.vi_line_numbers` when `cursor_row != null` (cursor is visible in viewport). This mirrors the existing guard on `.vi_cursor` (`if (state.vi_mode.cursor_row) |row|`).
 
 ### Data Flow
 
@@ -149,12 +159,12 @@ Surface.updateViModeRenderState()
   |-- compute cursor viewport row via pointFromPin(.viewport, cursor_pin)
   |-- compute viewport top absolute row via pointFromPin(.screen, viewport_top_pin)
   |-- set renderer_state.vi_mode.line_numbers = relative|absolute|off
-  |-- set renderer_state.vi_mode.cursor_viewport_row = viewport_y
   |-- set renderer_state.vi_mode.viewport_top_abs_row = screen_y
   v
 generic.zig updateFrame() critical section
   |-- read state.vi_mode
-  |-- if line_numbers != .off:
+  |-- if line_numbers != .off AND cursor_row != null:
+  |     viewport_rows read from terminal.rows (already available in render state)
   |     append .vi_line_numbers { .mode, .cursor_row, .viewport_top_abs_row, .viewport_rows }
   v
 Overlay.applyFeatures()
@@ -187,6 +197,7 @@ overlay uploaded as GPU image, composited on top of terminal
 | Scenario | Behavior |
 |----------|----------|
 | Terminal < 4 columns wide | Skip gutter entirely |
+| Cursor scrolled off viewport | `cursor_row` is null; skip `.vi_line_numbers` feature (no gutter drawn). Mirrors existing `.vi_cursor` null guard. |
 | Scrollback garbage collection (page pruned) | Cursor resets to viewport top-left (existing behavior); line numbers follow automatically |
 | Visual selection in gutter area | Selection renders first, line numbers render on top (partially obscure selection in gutter columns) |
 | Search highlights in gutter area | Same — numbers on top |
@@ -198,7 +209,7 @@ overlay uploaded as GPU image, composited on top of terminal
 | File | Changes |
 |------|---------|
 | `src/config/Config.zig` | Add `vi-mode-line-numbers` enum field (off/relative/absolute) |
-| `src/renderer/State.zig` | Add `line_numbers`, `cursor_viewport_row`, and `viewport_top_abs_row` to `ViMode` struct |
+| `src/renderer/State.zig` | Add `line_numbers` and `viewport_top_abs_row` to `ViMode` struct (reuse existing `cursor_row`) |
 | `src/Surface.zig` | Extend `updateViModeRenderState()` to compute and set line number fields; add `vi_line_numbers_visible` toggle field |
 | `src/renderer/generic.zig` | Read line number config, append `.vi_line_numbers` feature when active |
 | `src/renderer/Overlay.zig` | Add `.vi_line_numbers` feature variant; implement `highlightViLineNumbers()`, `drawDigitString()`, `drawDigit()` |
