@@ -219,12 +219,12 @@ pub fn threadEnter(
                 try skipPayload(reader, header.payload_len);
                 break;
             }
-            // Screen snapshot: first 4 bytes are terminal_id, rest is raw output.
+            // Snapshot payload: terminal_id(4) + cols(2) + rows(2) + data
             var payload = try alloc.alloc(u8, header.payload_len);
             defer alloc.free(payload);
             try reader.readNoEof(payload);
-            if (payload.len > 4) {
-                io.processOutput(payload[4..]);
+            if (payload.len > 8) {
+                io.processOutput(payload[8..]);
             }
         }
     }
