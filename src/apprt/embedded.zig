@@ -460,6 +460,10 @@ pub const Surface = struct {
 
         /// Context for the new surface
         context: apprt.surface.NewSurfaceContext = .window,
+
+        /// Background opacity override for the surface. 0 means inherit
+        /// from the global config.
+        background_opacity: f64 = 0,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -571,6 +575,11 @@ pub const Surface = struct {
         // Wait after command
         if (opts.wait_after_command) {
             config.@"wait-after-command" = true;
+        }
+
+        // Apply background opacity override if set (0 means inherit global).
+        if (opts.background_opacity > 0) {
+            config.@"background-opacity" = std.math.clamp(opts.background_opacity, 0.0, 1.0);
         }
 
         // Initialize our surface right away. We're given a view that is
