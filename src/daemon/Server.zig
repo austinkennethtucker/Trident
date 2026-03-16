@@ -69,8 +69,24 @@ pub fn init(alloc: Allocator) !Server {
     const path = try socketPath(alloc);
     errdefer alloc.free(path);
 
-    // Remove stale socket file (harmless if it doesn't exist).
-    posix.unlink(path) catch {};
+    // Only remove the socket file if no daemon is listening on it.
+    stale_check: {
+        const test_fd = posix.socket(posix.AF.UNIX, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0) catch break :stale_check;
+        defer posix.close(test_fd);
+        var test_addr: posix.sockaddr.un = undefined;
+        test_addr.family = posix.AF.UNIX;
+        @memset(&test_addr.path, 0);
+        if (path.len < test_addr.path.len) {
+            @memcpy(test_addr.path[0..path.len], path);
+            posix.connect(test_fd, @ptrCast(&test_addr), @sizeOf(posix.sockaddr.un)) catch {
+                // Connect failed → stale socket, safe to remove.
+                posix.unlink(path) catch {};
+                break :stale_check;
+            };
+            // Connect succeeded → another daemon is running.
+            return error.DaemonAlreadyRunning;
+        }
+    }
 
     // Create the UNIX-domain stream socket with CLOEXEC so forked PTY
     // children don't inherit the listen fd.
