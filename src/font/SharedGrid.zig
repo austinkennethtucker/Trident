@@ -102,11 +102,12 @@ pub fn init(
     // We set an initial capacity that can fit a good number of characters.
     // This number was picked empirically based on my own terminal usage.
     try tw.check(.codepoints_capacity);
-    try result.codepoints.ensureTotalCapacity(alloc, 128);
     errdefer result.codepoints.deinit(alloc);
+    try result.codepoints.ensureTotalCapacity(alloc, 128);
+
     try tw.check(.glyphs_capacity);
-    try result.glyphs.ensureTotalCapacity(alloc, 128);
     errdefer result.glyphs.deinit(alloc);
+    try result.glyphs.ensureTotalCapacity(alloc, 128);
 
     // Initialize our metrics.
     try tw.check(.reload_metrics);
