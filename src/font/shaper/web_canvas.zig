@@ -79,11 +79,11 @@ pub const Shaper = struct {
     /// If there is not enough space in the cell buffer, an error is
     /// returned.
     pub fn shape(self: *Shaper, run: font.shape.TextRun) ![]font.shape.Cell {
-        // TODO: memory check that cell_buf can fit results
-
         const codepoints = self.run_buf.items(.codepoint);
         const clusters = self.run_buf.items(.cluster);
         assert(codepoints.len == clusters.len);
+
+        if (codepoints.len > self.cell_buf.len) return error.OutOfMemory;
 
         switch (codepoints.len) {
             // Special cases: if we have no codepoints (is this possible?)
