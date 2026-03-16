@@ -57,8 +57,11 @@ pub fn launchedFromDesktop() bool {
             break :ul gio_pid == pid;
         },
 
-        // TODO: This should have some logic to detect this. Perhaps std.builtin.subsystem
-        .windows => false,
+        .windows => windows: {
+            const peb = std.os.windows.peb();
+            const is_gui = peb.ImageSubSystem == @intFromEnum(std.coff.Subsystem.WINDOWS_GUI);
+            break :windows is_gui;
+        },
 
         // iPhone/iPad is always launched from the "desktop"
         .ios => true,
