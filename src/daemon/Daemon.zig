@@ -688,28 +688,11 @@ fn handlePtyOutput(self: *Daemon, fd: posix.fd_t, buf: *[read_buf_size]u8) void 
 
 fn handlePtyHangup(self: *Daemon, fd: posix.fd_t) void {
     const terminal = self.pty_terminals.get(fd) orelse return;
-    const tid = terminal.id;
-    log.info("pty hangup for terminal id={d}", .{tid});
-
-    terminal.markExited(0);
-
-    // Notify attached client if any.
-    const session_name = self.id_sessions.get(tid) orelse "";
-    const session = if (session_name.len > 0) self.sessions.get(session_name) else null;
-    if (session) |s| {
-        if (s.attached_client) |client_fd| {
-            self.sendTerminalExited(client_fd, tid, 0) catch {};
-        }
-    }
-
-    // Clean up ALL maps so the dead terminal (and its ring buffer) can
-    // be freed, rather than leaking in id_terminals / id_sessions.
+    log.info("pty hangup for terminal id={d}, awaiting child reap", .{terminal.id});
+    // Remove from poll set so we stop polling the dead fd.
+    // Don't emit terminal_exited yet — reapChildren will do that after
+    // waitpid provides the real exit code (avoids double-emit with wrong status).
     _ = self.pty_terminals.remove(fd);
-    _ = self.id_terminals.remove(tid);
-    _ = self.id_sessions.remove(tid);
-    if (session) |s| {
-        _ = s.removeTerminal(tid);
-    }
 }
 
 // -----------------------------------------------------------------------
@@ -732,20 +715,34 @@ fn reapChildren(self: *Daemon) void {
         else
             -1;
 
-        // Find the terminal that owns this PID and mark it exited.
+        // Find the terminal that owns this PID, notify client, and clean up.
         var id_it = self.id_terminals.iterator();
         while (id_it.next()) |entry| {
-            const terminal: *Terminal = entry.value_ptr.*;
-            if (terminal.child_pid == pid) {
-                terminal.markExited(exit_code);
-                log.info("child pid={d} exited code={d} (terminal {d})", .{ pid, exit_code, terminal.id });
+            const terminal_ptr: *Terminal = entry.value_ptr.*;
+            if (terminal_ptr.child_pid == pid) {
+                const tid = terminal_ptr.id;
+                terminal_ptr.markExited(exit_code);
+                log.info("child pid={d} exited code={d} (terminal {d})", .{ pid, exit_code, tid });
 
-                // Notify attached client.
-                const sn = self.id_sessions.get(terminal.id) orelse continue;
-                const session = self.sessions.get(sn) orelse continue;
+                // Notify attached client with the real exit code.
+                const sn = self.id_sessions.get(tid) orelse {
+                    // Orphaned terminal — just remove from id_terminals.
+                    _ = self.id_terminals.remove(tid);
+                    break;
+                };
+                const session = self.sessions.get(sn) orelse {
+                    _ = self.id_terminals.remove(tid);
+                    _ = self.id_sessions.remove(tid);
+                    break;
+                };
                 if (session.attached_client) |client_fd| {
-                    self.sendTerminalExited(client_fd, terminal.id, exit_code) catch {};
+                    self.sendTerminalExited(client_fd, tid, exit_code) catch {};
                 }
+
+                // Full cleanup — free terminal and its ring buffer.
+                _ = self.id_terminals.remove(tid);
+                _ = self.id_sessions.remove(tid);
+                session.removeTerminal(tid);
                 break;
             }
         }
