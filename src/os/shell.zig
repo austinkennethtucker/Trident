@@ -100,11 +100,6 @@ pub const ShellEscapeWriter = struct {
     fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
         const self: *ShellEscapeWriter = @fieldParentPtr("writer", w);
 
-        // TODO: This is a very naive implementation and does not really make
-        // full use of the post-Writergate API. However, since we know that
-        // this is going into an Allocating writer anyways, we can be a bit
-        // less strict here.
-
         var count: usize = 0;
         for (data[0 .. data.len - 1]) |chunk| try self.writeEscaped(chunk, &count);
 
@@ -117,36 +112,33 @@ pub const ShellEscapeWriter = struct {
         s: []const u8,
         count: *usize,
     ) Writer.Error!void {
-        for (s) |byte| {
-            const buf = switch (byte) {
-                '\\',
-                '"',
-                '\'',
-                '$',
-                '`',
-                '*',
-                '?',
-                ' ',
-                '|',
-                '(',
-                ')',
-                ';',
-                '&',
-                '<',
-                '>',
-                '[',
-                ']',
-                '{',
-                '}',
-                '~',
-                '#',
-                '!',
-                => &[_]u8{ '\\', byte },
-                '\n', '\r' => &.{},
-                else => &[_]u8{byte},
-            };
-            try self.child.writeAll(buf);
-            count.* += 1;
+        const special = "\\\"'$`*? |();&<>[]{}~#!\n\r";
+        var start: usize = 0;
+
+        while (start < s.len) {
+            if (std.mem.indexOfAny(u8, s[start..], special)) |idx| {
+                const match_idx = start + idx;
+                if (match_idx > start) {
+                    const chunk = s[start..match_idx];
+                    try self.child.writeAll(chunk);
+                    count.* += chunk.len;
+                }
+
+                const byte = s[match_idx];
+                const buf = switch (byte) {
+                    '\n', '\r' => &.{},
+                    else => &[_]u8{ '\\', byte },
+                };
+                try self.child.writeAll(buf);
+                count.* += 1;
+
+                start = match_idx + 1;
+            } else {
+                const chunk = s[start..];
+                try self.child.writeAll(chunk);
+                count.* += chunk.len;
+                break;
+            }
         }
     }
 };
