@@ -754,6 +754,13 @@ pub const Action = union(enum) {
     /// Press Escape or q to exit vi mode.
     enter_vi_mode,
 
+    /// Toggle vi mode line numbers on or off.
+    ///
+    /// If `vi-mode-line-numbers` is configured to `relative` or `absolute`,
+    /// this toggles the line number gutter visibility while in vi mode.
+    /// Has no effect if `vi-mode-line-numbers` is `off` or vi mode is not active.
+    toggle_vi_line_numbers,
+
     /// Toggle the command palette.
     ///
     /// The command palette is a popup that lets you see what actions
@@ -1382,6 +1389,7 @@ pub const Action = union(enum) {
             .toggle_secure_input,
             .toggle_mouse_reporting,
             .enter_vi_mode,
+            .toggle_vi_line_numbers,
             .toggle_command_palette,
             .toggle_background_opacity,
             .show_on_screen_keyboard,

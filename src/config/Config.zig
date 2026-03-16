@@ -1987,6 +1987,18 @@ keybind: Keybinds = .{},
 ///   don't look good extended.
 @"window-padding-color": WindowPaddingColor = .background,
 
+/// Show line numbers in the gutter during vi mode.
+///
+/// When set to `relative`, the current cursor line shows its absolute
+/// scrollback row number and all other lines show their distance from the
+/// cursor — like Neovim's `set relativenumber`. When set to `absolute`,
+/// all lines show their absolute scrollback row number.
+///
+/// Line numbers overlay the leftmost terminal columns. They appear
+/// automatically when entering vi mode and can be toggled at runtime
+/// via the `toggle_vi_line_numbers` keybind action.
+@"vi-mode-line-numbers": ViModeLineNumbers = .off,
+
 /// Synchronize rendering with the screen refresh rate. If true, this will
 /// minimize tearing and align redraws with the screen but may cause input
 /// latency. If false, this will maximize redraw frequency but may cause tearing,
@@ -5542,6 +5554,12 @@ pub const WindowPaddingColor = enum {
     background,
     extend,
     @"extend-always",
+};
+
+pub const ViModeLineNumbers = enum {
+    off,
+    relative,
+    absolute,
 };
 
 pub const WindowSubtitle = enum {

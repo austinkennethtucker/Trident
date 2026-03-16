@@ -651,6 +651,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Enter vi mode for scrollback navigation using vi keybindings.",
         }},
 
+        .toggle_vi_line_numbers => comptime &.{.{
+            .action = .toggle_vi_line_numbers,
+            .title = "Toggle Vi Mode Line Numbers",
+            .description = "Toggle the line number gutter visibility while in vi mode.",
+        }},
+
         .toggle_background_opacity => comptime &.{.{
             .action = .toggle_background_opacity,
             .title = "Toggle Background Opacity",

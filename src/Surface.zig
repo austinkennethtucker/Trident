@@ -127,6 +127,10 @@ inspector: ?*inspectorpkg.Inspector = null,
 /// Vi mode state for scrollback navigation.
 vi_mode: ?ViMode = null,
 
+/// Whether vi-mode line numbers are currently visible (runtime toggle).
+/// Defaults to true on vi-mode entry (auto-activate).
+vi_line_numbers_visible: bool = true,
+
 /// All our sizing information.
 size: rendererpkg.Size,
 
@@ -341,6 +345,7 @@ const DerivedConfig = struct {
     links: []DerivedConfig.Link,
     link_previews: configpkg.LinkPreviews,
     scroll_to_bottom: configpkg.Config.ScrollToBottom,
+    vi_mode_line_numbers: configpkg.ViModeLineNumbers,
     notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
     notify_on_command_finish_action: configpkg.Config.NotifyOnCommandFinishAction,
     notify_on_command_finish_after: Duration,
@@ -419,6 +424,7 @@ const DerivedConfig = struct {
             .links = links,
             .link_previews = config.@"link-previews",
             .scroll_to_bottom = config.@"scroll-to-bottom",
+            .vi_mode_line_numbers = config.@"vi-mode-line-numbers",
             .notify_on_command_finish = config.@"notify-on-command-finish",
             .notify_on_command_finish_action = config.@"notify-on-command-finish-action",
             .notify_on_command_finish_after = config.@"notify-on-command-finish-after",
@@ -1755,6 +1761,14 @@ pub fn updateConfig(
     self.config.deinit();
     self.config = derived;
 
+    // If vi-mode is active, refresh render state so line number config
+    // changes take effect immediately on the next frame.
+    if (self.vi_mode != null) {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        self.updateViModeRenderState();
+    }
+
     // If our mouse is hidden but we disabled mouse hiding, then show it again.
     if (!self.config.mouse_hide_while_typing and self.mouse.hidden) {
         self.showMouse();
@@ -2595,6 +2609,23 @@ fn updateViModeRenderState(self: *Surface) void {
 
     const vp_point = screen.pages.pointFromPin(.viewport, vi.cursor_pin.*);
 
+    // Compute viewport top absolute row for line numbers
+    const viewport_top = screen.pages.getTopLeft(.viewport);
+    const viewport_top_abs_row: ?usize = if (screen.pages.pointFromPin(.screen, viewport_top)) |sp|
+        @intCast(sp.screen.y)
+    else
+        null;
+
+    // Determine line number mode: config + runtime toggle
+    const line_numbers: rendererpkg.State.ViMode.LineNumbers = if (self.vi_line_numbers_visible)
+        switch (self.config.vi_mode_line_numbers) {
+            .off => .off,
+            .relative => .relative,
+            .absolute => .absolute,
+        }
+    else
+        .off;
+
     self.renderer_state.vi_mode = .{
         .active = true,
         .cursor_row = if (vp_point) |pt| @intCast(pt.viewport.y) else null,
@@ -2605,6 +2636,8 @@ fn updateViModeRenderState(self: *Surface) void {
             .visual_line => "-- VISUAL LINE --",
             .visual_block => "-- V-BLOCK --",
         },
+        .line_numbers = line_numbers,
+        .viewport_top_abs_row = viewport_top_abs_row,
     };
 }
 
@@ -6114,6 +6147,18 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // If already .pin or .top, viewport is already frozen.
 
             self.vi_mode = ViMode.init(cursor_pin);
+            self.vi_line_numbers_visible = true;
+            self.updateViModeRenderState();
+            self.queueRender() catch {};
+        },
+
+        .toggle_vi_line_numbers => {
+            // Only toggle if vi mode is active and config enables line numbers
+            if (self.vi_mode == null) return true;
+            if (self.config.vi_mode_line_numbers == .off) return true;
+            self.vi_line_numbers_visible = !self.vi_line_numbers_visible;
+            self.renderer_state.mutex.lock();
+            defer self.renderer_state.mutex.unlock();
             self.updateViModeRenderState();
             self.queueRender() catch {};
         },

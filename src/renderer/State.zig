@@ -46,6 +46,20 @@ pub const ViMode = struct {
     /// The mode indicator text to display (e.g. "NORMAL", "VISUAL").
     /// This is a static string that does not need to be freed.
     mode_text: ?[]const u8 = null,
+
+    /// Which line number mode is active (off if disabled or toggled off).
+    line_numbers: LineNumbers = .off,
+
+    /// Absolute scrollback row of the viewport's top-left corner.
+    /// Used to derive any visible line's absolute row: viewport_top_abs_row + row_index.
+    /// Null if vi mode is inactive.
+    viewport_top_abs_row: ?usize = null,
+
+    pub const LineNumbers = enum {
+        off,
+        relative,
+        absolute,
+    };
 };
 
 pub const Mouse = struct {
