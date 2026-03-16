@@ -450,14 +450,26 @@ fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:nu
     const envp_count = env_map.count();
     const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
 
+    var total_bytes: usize = 0;
     var it = env_map.iterator();
+    while (it.next()) |pair| {
+        total_bytes += pair.key_ptr.len + pair.value_ptr.len + 2;
+    }
+
+    const all_envs_buf = try arena.alloc(u8, total_bytes);
+
+    it = env_map.iterator();
     var i: usize = 0;
+    var offset: usize = 0;
     while (it.next()) |pair| : (i += 1) {
-        const env_buf = try arena.allocSentinel(u8, pair.key_ptr.len + pair.value_ptr.len + 1, 0);
+        const env_len = pair.key_ptr.len + pair.value_ptr.len + 1;
+        const env_buf = all_envs_buf[offset .. offset + env_len + 1];
         @memcpy(env_buf[0..pair.key_ptr.len], pair.key_ptr.*);
         env_buf[pair.key_ptr.len] = '=';
-        @memcpy(env_buf[pair.key_ptr.len + 1 ..], pair.value_ptr.*);
-        envp_buf[i] = env_buf.ptr;
+        @memcpy(env_buf[pair.key_ptr.len + 1 .. env_len], pair.value_ptr.*);
+        env_buf[env_len] = 0;
+        envp_buf[i] = env_buf[0..env_len :0].ptr;
+        offset += env_len + 1;
     }
     std.debug.assert(i == envp_count);
 
