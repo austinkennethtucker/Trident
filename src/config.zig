@@ -42,6 +42,7 @@ pub const ShellIntegrationFeatures = Config.ShellIntegrationFeatures;
 pub const WindowDecoration = Config.WindowDecoration;
 pub const WindowPaddingColor = Config.WindowPaddingColor;
 pub const ViModeLineNumbers = Config.ViModeLineNumbers;
+pub const SessionRestore = Config.SessionRestore;
 pub const BackgroundImagePosition = Config.BackgroundImagePosition;
 pub const BackgroundImageFit = Config.BackgroundImageFit;
 pub const LinkPreviews = Config.LinkPreviews;
