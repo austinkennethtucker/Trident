@@ -604,13 +604,6 @@ fn vi_visual_fill() z2d.Pixel {
     return rgba.multiply().asPixel();
 }
 
-/// Blue border for visual mode indicator.
-fn vi_visual_border() z2d.Pixel {
-    var rgba: z2d.pixel.RGBA = .fromPixel((z2d.pixel.RGB{ .r = 100, .g = 160, .b = 255 }).asPixel());
-    rgba.a = 200;
-    return rgba.multiply().asPixel();
-}
-
 /// Creates a rectangle for highlighting a grid region. x/y/width/height
 /// are all in grid cells.
 fn highlightGridRect(
