@@ -28,3 +28,5 @@ vgcore.*
 
 docs/superpowers/
 .superpowers/
+zig-bin/
+zig.tar.xz
