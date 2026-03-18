@@ -119,6 +119,13 @@ pub const PaneTabBar = extern struct {
                 self,
                 .{ .detail = "title" },
             );
+            _ = gobject.Object.signals.notify.connect(
+                surface,
+                *Self,
+                surfaceTitleChanged,
+                self,
+                .{ .detail = "title-override" },
+            );
 
             priv.tabs.append(std.heap.c_allocator, .{
                 .container = container,
@@ -190,7 +197,7 @@ pub const PaneTabBar = extern struct {
     }
 
     fn tabTitle(surface: *Surface) [*:0]const u8 {
-        const title = surface.getTitle() orelse return "Terminal";
+        const title = surface.getEffectiveTitle() orelse return "Terminal";
         return if (title.len == 0) "Terminal" else title.ptr;
     }
 
