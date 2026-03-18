@@ -369,14 +369,9 @@ class BaseTerminalController: NSWindowController,
         guard let manager = internalTabManager else { return false }
         guard manager.count > 1 else { return false } // Don't close the last tab
 
+        // Remove the tab. The surfaces will be cleaned up when the split tree is released.
         let wasSelected = (index == manager.selectedTabIndex)
-
-        // Close all surfaces in the tab being removed
-        if let tab = manager.removeTab(at: index) {
-            for surface in tab.splitTree {
-                surface.close()
-            }
-        }
+        guard manager.removeTab(at: index) != nil else { return false }
 
         // If the closed tab was selected, load the new selection
         if wasSelected {

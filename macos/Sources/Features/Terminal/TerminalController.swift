@@ -774,15 +774,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     func closeWindowImmediately() {
         guard let window = window else { return }
 
-        // Close all surfaces in internal tabs before closing the window
+        // Clear internal tabs before closing the window.
+        // Surfaces are cleaned up when split trees are released.
         if let manager = internalTabManager {
-            for (index, tab) in manager.tabs.enumerated() {
-                // Don't close the currently active tab's tree -- surfaceTree handles that
-                if index != manager.selectedTabIndex {
-                    for surface in tab.splitTree {
-                        surface.close()
-                    }
-                }
+            for (index, _) in manager.tabs.enumerated() where index != manager.selectedTabIndex {
+                _ = manager.removeTab(at: index)
             }
         }
 
@@ -1310,16 +1306,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 return tab.splitTree.contains(where: { $0.needsConfirmQuit })
             }
             if !needsConfirm {
-                let removed = manager.closeOtherTabs(except: manager.selectedTabIndex)
-                for tab in removed { for surface in tab.splitTree { surface.close() } }
+                _ = manager.closeOtherTabs(except: manager.selectedTabIndex)
                 return
             }
             confirmClose(
                 messageText: "Close Other Tabs?",
                 informativeText: "At least one other tab still has a running process. If you close the tab the process will be killed."
             ) {
-                let removed = manager.closeOtherTabs(except: manager.selectedTabIndex)
-                for tab in removed { for surface in tab.splitTree { surface.close() } }
+                _ = manager.closeOtherTabs(except: manager.selectedTabIndex)
             }
             return
         }
@@ -1364,16 +1358,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 tab.splitTree.contains(where: { $0.needsConfirmQuit })
             }
             if !needsConfirm {
-                let removed = manager.closeTabsToTheRight(of: manager.selectedTabIndex)
-                for tab in removed { for surface in tab.splitTree { surface.close() } }
+                _ = manager.closeTabsToTheRight(of: manager.selectedTabIndex)
                 return
             }
             confirmClose(
                 messageText: "Close Tabs on the Right?",
                 informativeText: "At least one tab to the right still has a running process. If you close the tab the process will be killed."
             ) {
-                let removed = manager.closeTabsToTheRight(of: manager.selectedTabIndex)
-                for tab in removed { for surface in tab.splitTree { surface.close() } }
+                _ = manager.closeTabsToTheRight(of: manager.selectedTabIndex)
             }
             return
         }
@@ -1657,12 +1649,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Internal tab mode
         if let manager = internalTabManager {
-            let removedTabs = manager.closeOtherTabs(except: manager.selectedTabIndex)
-            for tab in removedTabs {
-                for surface in tab.splitTree {
-                    surface.close()
-                }
-            }
+            _ = manager.closeOtherTabs(except: manager.selectedTabIndex)
             return
         }
 
@@ -1675,12 +1662,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Internal tab mode
         if let manager = internalTabManager {
-            let removedTabs = manager.closeTabsToTheRight(of: manager.selectedTabIndex)
-            for tab in removedTabs {
-                for surface in tab.splitTree {
-                    surface.close()
-                }
-            }
+            _ = manager.closeTabsToTheRight(of: manager.selectedTabIndex)
             return
         }
 
