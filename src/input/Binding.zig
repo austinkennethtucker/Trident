@@ -636,6 +636,25 @@ pub const Action = union(enum) {
     /// Equalize the size of all splits in the current window.
     equalize_splits,
 
+    /// Open a new tab within the currently focused pane, without
+    /// affecting the split layout.
+    new_pane_tab,
+
+    /// Close the active tab in the currently focused pane. If it is
+    /// the last tab, the pane itself is closed.
+    close_pane_tab,
+
+    /// Switch to the previous pane tab in the focused pane, wrapping
+    /// around to the last tab if already on the first.
+    goto_pane_tab_prev,
+
+    /// Switch to the next pane tab in the focused pane, wrapping
+    /// around to the first tab if already on the last.
+    goto_pane_tab_next,
+
+    /// Jump to a specific pane tab by 0-based index.
+    goto_pane_tab: u16,
+
     /// Reset the window to the default size. The "default size" is the
     /// size that a new window would be created with. This has no effect
     /// if the window is fullscreen.
@@ -1420,6 +1439,11 @@ pub const Action = union(enum) {
             .toggle_readonly,
             .resize_split,
             .equalize_splits,
+            .new_pane_tab,
+            .close_pane_tab,
+            .goto_pane_tab_prev,
+            .goto_pane_tab_next,
+            .goto_pane_tab,
             .inspector,
             => .surface,
         };

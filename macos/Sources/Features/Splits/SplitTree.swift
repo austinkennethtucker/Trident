@@ -13,7 +13,7 @@ struct SplitTree<ViewType: NSView & Codable & Identifiable> {
     /// A single node in the tree is either a leaf node (a view) or a split (has a
     /// left/right or top/bottom).
     indirect enum Node: Codable {
-        case leaf(view: ViewType)
+        case leaf(TabGroup)
         case split(Split)
 
         struct Split: Equatable, Codable {
@@ -21,6 +21,62 @@ struct SplitTree<ViewType: NSView & Codable & Identifiable> {
             let ratio: Double
             let left: Node
             let right: Node
+        }
+    }
+
+    struct TabGroup: Codable, Identifiable {
+        let id: UUID
+        var tabs: [ViewType]
+        var activeIndex: Int
+
+        var activeView: ViewType {
+            tabs[activeIndex]
+        }
+
+        var tabCount: Int {
+            tabs.count
+        }
+
+        init(id: UUID = UUID(), tabs: [ViewType], activeIndex: Int = 0) {
+            self.id = id
+            self.tabs = tabs
+            self.activeIndex = Swift.min(activeIndex, Swift.max(tabs.count - 1, 0))
+        }
+
+        init(view: ViewType) {
+            self.init(tabs: [view])
+        }
+
+        func contains(_ view: ViewType) -> Bool {
+            tabs.contains(where: { $0 === view })
+        }
+
+        func index(of view: ViewType) -> Int? {
+            tabs.firstIndex(where: { $0 === view })
+        }
+
+        mutating func addTab(_ view: ViewType) {
+            let insertPosition = activeIndex + 1
+            tabs.insert(view, at: insertPosition)
+            activeIndex = insertPosition
+        }
+
+        mutating func removeTab(at index: Int) {
+            guard index >= 0, index < tabs.count else { return }
+            tabs.remove(at: index)
+
+            if tabs.isEmpty {
+                activeIndex = 0
+            } else if activeIndex >= tabs.count {
+                activeIndex = tabs.count - 1
+            } else if index < activeIndex {
+                activeIndex -= 1
+            }
+        }
+
+        mutating func setActive(_ index: Int) {
+            guard index >= 0, index < tabs.count else { return }
+            activeIndex = index
         }
     }
 
@@ -105,7 +161,7 @@ extension SplitTree {
     }
 
     init(view: ViewType) {
-        self.init(root: .leaf(view: view), zoomed: nil)
+        self.init(root: .leaf(.init(view: view)), zoomed: nil)
     }
 
     /// Checks if the tree contains the specified node.
@@ -180,7 +236,7 @@ extension SplitTree {
         switch direction {
         case .previous:
             // For previous, we traverse in order and find the previous leaf from our leftmost
-            let allLeaves = root.leaves()
+            let allLeaves = root.activeLeaves()
             let currentView = currentNode.leftmostLeaf()
             guard let currentIndex = allLeaves.firstIndex(where: { $0 === currentView }) else {
                 // Shouldn't be possible leftmostLeaf can't return something that doesn't exist!
@@ -191,7 +247,7 @@ extension SplitTree {
 
         case .next:
             // For previous, we traverse in order and find the next leaf from our rightmost
-            let allLeaves = root.leaves()
+            let allLeaves = root.activeLeaves()
             let currentView = currentNode.rightmostLeaf()
             guard let currentIndex = allLeaves.firstIndex(where: { $0 === currentView }) else {
                 return nil
@@ -217,8 +273,8 @@ extension SplitTree {
                 if case .leaf = $0.node { return true } else { return false }
             }) ?? nodes[0]
             switch bestNode.node {
-            case .leaf(let view):
-                return view
+            case .leaf(let group):
+                return group.activeView
 
             case .split:
                 // If the best candidate is a split node, use its the leaf/rightmost
@@ -349,7 +405,7 @@ private enum CodingKeys: String, CodingKey {
     case root
     case zoomed
 
-    static let currentVersion: Int = 1
+    static let currentVersion: Int = 2
 }
 
 extension SplitTree: Codable {
@@ -358,7 +414,7 @@ extension SplitTree: Codable {
 
         // Check version
         let version = try container.decode(Int.self, forKey: .version)
-        guard version == CodingKeys.currentVersion else {
+        guard version == 1 || version == CodingKeys.currentVersion else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
@@ -409,8 +465,8 @@ extension SplitTree.Node {
     /// - Returns: The node containing the view if found, nil otherwise
     func find(id: ViewType.ID) -> Node? {
         switch self {
-        case .leaf(let view):
-            return view.id == id ? self : nil
+        case .leaf(let group):
+            return group.tabs.contains(where: { $0.id == id }) ? self : nil
 
         case .split(let split):
             if let found = split.left.find(id: id) {
@@ -424,8 +480,8 @@ extension SplitTree.Node {
     /// Returns the node in the tree that contains the given view.
     func node(view: ViewType) -> Node? {
         switch self {
-        case .leaf(view):
-            return self
+        case .leaf(let group):
+            return group.contains(view) ? self : nil
 
         case .split(let split):
             if let result = split.left.node(view: view) {
@@ -512,7 +568,8 @@ extension SplitTree.Node {
     func inserting(view: ViewType, at: ViewType, direction: NewDirection) throws -> Self {
         // Get the path to our insertion point. If it doesn't exist we do
         // nothing.
-        guard let path = path(to: .leaf(view: at)) else {
+        guard let targetNode = node(view: at),
+              let path = path(to: targetNode) else {
             throw SplitError.viewNotFound
         }
 
@@ -535,8 +592,8 @@ extension SplitTree.Node {
         }
 
         // Create the new split node
-        let newNode: Node = .leaf(view: view)
-        let existingNode: Node = .leaf(view: at)
+        let newNode: Node = .leaf(.init(view: view))
+        let existingNode = targetNode
         let newSplit: Node = .split(.init(
             direction: splitDirection,
             ratio: 0.5,
@@ -656,8 +713,8 @@ extension SplitTree.Node {
     /// Get the leftmost leaf in this subtree
     func leftmostLeaf() -> ViewType {
         switch self {
-        case .leaf(let view):
-            return view
+        case .leaf(let group):
+            return group.activeView
         case .split(let split):
             return split.left.leftmostLeaf()
         }
@@ -666,8 +723,8 @@ extension SplitTree.Node {
     /// Get the rightmost leaf in this subtree
     func rightmostLeaf() -> ViewType {
         switch self {
-        case .leaf(let view):
-            return view
+        case .leaf(let group):
+            return group.activeView
         case .split(let split):
             return split.right.rightmostLeaf()
         }
@@ -732,8 +789,8 @@ extension SplitTree.Node {
     /// Calculate the bounds of all views in this subtree based on split ratios
     func calculateViewBounds(in bounds: CGRect) -> [(view: ViewType, bounds: CGRect)] {
         switch self {
-        case .leaf(let view):
-            return [(view, bounds)]
+        case .leaf(let group):
+            return [(group.activeView, bounds)]
 
         case .split(let split):
             // Calculate bounds for left and right based on split direction and ratio
@@ -786,8 +843,8 @@ extension SplitTree.Node {
     /// - Returns: The total width and height needed to contain all views in this subtree
     func viewBounds() -> CGSize {
         switch self {
-        case .leaf(let view):
-            return view.bounds.size
+        case .leaf(let group):
+            return group.activeView.bounds.size
 
         case .split(let split):
             let leftBounds = split.left.viewBounds()
@@ -1110,9 +1167,8 @@ extension SplitTree.Spatial {
 extension SplitTree.Node: Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
-        case let (.leaf(leftView), .leaf(rightView)):
-            // Compare NSView instances by object identity
-            return leftView === rightView
+        case let (.leaf(leftGroup), .leaf(rightGroup)):
+            return leftGroup.id == rightGroup.id
 
         case let (.split(split1), .split(split2)):
             return split1 == split2
@@ -1128,15 +1184,19 @@ extension SplitTree.Node: Equatable {
 extension SplitTree.Node {
     enum CodingKeys: String, CodingKey {
         case view
+        case tabGroup
         case split
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        if container.contains(.view) {
+        if container.contains(.tabGroup) {
+            let group = try container.decode(SplitTree.TabGroup.self, forKey: .tabGroup)
+            self = .leaf(group)
+        } else if container.contains(.view) {
             let view = try container.decode(ViewType.self, forKey: .view)
-            self = .leaf(view: view)
+            self = .leaf(.init(view: view))
         } else if container.contains(.split) {
             let split = try container.decode(Split.self, forKey: .split)
             self = .split(split)
@@ -1154,8 +1214,8 @@ extension SplitTree.Node {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         switch self {
-        case .leaf(let view):
-            try container.encode(view, forKey: .view)
+        case .leaf(let group):
+            try container.encode(group, forKey: .tabGroup)
 
         case .split(let split):
             try container.encode(split, forKey: .split)
@@ -1166,27 +1226,43 @@ extension SplitTree.Node {
 // MARK: SplitTree Sequences
 
 extension SplitTree.Node {
-    /// Returns all leaf views in this subtree
-    func leaves() -> [ViewType] {
+    /// Returns the active leaf views in this subtree.
+    func activeLeaves() -> [ViewType] {
         switch self {
-        case .leaf(let view):
-            return [view]
+        case .leaf(let group):
+            return [group.activeView]
 
         case .split(let split):
-            return split.left.leaves() + split.right.leaves()
+            return split.left.activeLeaves() + split.right.activeLeaves()
         }
+    }
+
+    /// Returns every surface represented by this subtree, including background pane tabs.
+    func allViews() -> [ViewType] {
+        switch self {
+        case .leaf(let group):
+            return group.tabs
+
+        case .split(let split):
+            return split.left.allViews() + split.right.allViews()
+        }
+    }
+
+    /// Backwards-compatible alias for callers that need every surface.
+    func leaves() -> [ViewType] {
+        allViews()
     }
 }
 
 extension SplitTree: Sequence {
     func makeIterator() -> [ViewType].Iterator {
-        return root?.leaves().makeIterator() ?? [].makeIterator()
+        return root?.allViews().makeIterator() ?? [].makeIterator()
     }
 }
 
 extension SplitTree.Node: Sequence {
     func makeIterator() -> [ViewType].Iterator {
-        return leaves().makeIterator()
+        return allViews().makeIterator()
     }
 }
 
@@ -1201,12 +1277,12 @@ extension SplitTree: Collection {
     }
 
     var endIndex: Int {
-        return root?.leaves().count ?? 0
+        return root?.allViews().count ?? 0
     }
 
     subscript(position: Int) -> ViewType {
         precondition(position >= 0 && position < endIndex, "Index out of bounds")
-        let leaves = root?.leaves() ?? []
+        let leaves = root?.allViews() ?? []
         return leaves[position]
     }
 
@@ -1307,9 +1383,11 @@ extension SplitTree.Node {
     /// and the same views (by identity) in the same positions.
     fileprivate func isStructurallyEqual(to other: Node) -> Bool {
         switch (self, other) {
-        case let (.leaf(view1), .leaf(view2)):
-            // Views must be the same instance
-            return view1 === view2
+        case let (.leaf(group1), .leaf(group2)):
+            return group1.id == group2.id &&
+                   group1.activeIndex == group2.activeIndex &&
+                   zip(group1.tabs, group2.tabs).allSatisfy { $0 === $1 } &&
+                   group1.tabs.count == group2.tabs.count
 
         case let (.split(split1), .split(split2)):
             // Splits must have same direction and structurally equal children
@@ -1334,9 +1412,13 @@ extension SplitTree.Node {
     /// Includes the tree structure and view identities in the hash.
     fileprivate func hashStructure(into hasher: inout Hasher) {
         switch self {
-        case .leaf(let view):
+        case .leaf(let group):
             hasher.combine(HashKey.leaf)
-            hasher.combine(ObjectIdentifier(view))
+            hasher.combine(group.id)
+            hasher.combine(group.activeIndex)
+            for view in group.tabs {
+                hasher.combine(ObjectIdentifier(view))
+            }
 
         case .split(let split):
             hasher.combine(HashKey.split)

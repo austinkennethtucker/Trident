@@ -884,6 +884,11 @@ typedef struct {
   uint64_t len;
 } ghostty_action_scrollbar_s;
 
+// apprt.action.GotoPaneTab
+typedef struct {
+  uint16_t index;
+} ghostty_action_goto_pane_tab_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_QUIT,
@@ -954,6 +959,11 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_POPUP,
   GHOSTTY_ACTION_SHOW_POPUP,
   GHOSTTY_ACTION_HIDE_POPUP,
+  GHOSTTY_ACTION_NEW_PANE_TAB,
+  GHOSTTY_ACTION_CLOSE_PANE_TAB,
+  GHOSTTY_ACTION_GOTO_PANE_TAB_PREV,
+  GHOSTTY_ACTION_GOTO_PANE_TAB_NEXT,
+  GHOSTTY_ACTION_GOTO_PANE_TAB,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -998,6 +1008,7 @@ typedef union {
   ghostty_action_popup_s toggle_popup;
   ghostty_action_popup_s show_popup;
   ghostty_action_popup_s hide_popup;
+  ghostty_action_goto_pane_tab_s goto_pane_tab;
 } ghostty_action_u;
 
 typedef struct {

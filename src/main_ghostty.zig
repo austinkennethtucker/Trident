@@ -188,6 +188,7 @@ test {
     _ = @import("input.zig");
     _ = @import("cli.zig");
     _ = @import("surface_mouse.zig");
+    _ = @import("PaneTabGroup.zig");
 
     // Libraries
     _ = @import("tripwire.zig");

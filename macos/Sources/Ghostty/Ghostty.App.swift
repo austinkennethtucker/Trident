@@ -675,6 +675,22 @@ extension Ghostty {
                 return false
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
+
+            case GHOSTTY_ACTION_NEW_PANE_TAB:
+                newPaneTab(app, target: target)
+
+            case GHOSTTY_ACTION_CLOSE_PANE_TAB:
+                closePaneTab(app, target: target)
+
+            case GHOSTTY_ACTION_GOTO_PANE_TAB_PREV:
+                gotoPaneTabPrev(app, target: target)
+
+            case GHOSTTY_ACTION_GOTO_PANE_TAB_NEXT:
+                gotoPaneTabNext(app, target: target)
+
+            case GHOSTTY_ACTION_GOTO_PANE_TAB:
+                gotoPaneTab(app, target: target, v: action.action.goto_pane_tab)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue)")
                 return false
@@ -878,6 +894,53 @@ extension Ghostty {
             default:
                 assertionFailure()
             }
+        }
+
+        // MARK: - Pane Tab Actions
+
+        private static func newPaneTab(_ app: ghostty_app_t, target: ghostty_target_s) {
+            guard target.tag == GHOSTTY_TARGET_SURFACE else { return }
+            guard let surface = target.target.surface else { return }
+            guard let surfaceView = self.surfaceView(from: surface) else { return }
+            NotificationCenter.default.post(
+                name: Notification.ghosttyNewPaneTab,
+                object: surfaceView,
+                userInfo: [
+                    Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)),
+                ]
+            )
+        }
+
+        private static func closePaneTab(_ app: ghostty_app_t, target: ghostty_target_s) {
+            guard target.tag == GHOSTTY_TARGET_SURFACE else { return }
+            guard let surface = target.target.surface else { return }
+            guard let surfaceView = self.surfaceView(from: surface) else { return }
+            NotificationCenter.default.post(name: Notification.ghosttyClosePaneTab, object: surfaceView)
+        }
+
+        private static func gotoPaneTabPrev(_ app: ghostty_app_t, target: ghostty_target_s) {
+            guard target.tag == GHOSTTY_TARGET_SURFACE else { return }
+            guard let surface = target.target.surface else { return }
+            guard let surfaceView = self.surfaceView(from: surface) else { return }
+            NotificationCenter.default.post(name: Notification.ghosttyGotoPaneTabPrev, object: surfaceView)
+        }
+
+        private static func gotoPaneTabNext(_ app: ghostty_app_t, target: ghostty_target_s) {
+            guard target.tag == GHOSTTY_TARGET_SURFACE else { return }
+            guard let surface = target.target.surface else { return }
+            guard let surfaceView = self.surfaceView(from: surface) else { return }
+            NotificationCenter.default.post(name: Notification.ghosttyGotoPaneTabNext, object: surfaceView)
+        }
+
+        private static func gotoPaneTab(_ app: ghostty_app_t, target: ghostty_target_s, v: ghostty_action_goto_pane_tab_s) {
+            guard target.tag == GHOSTTY_TARGET_SURFACE else { return }
+            guard let surface = target.target.surface else { return }
+            guard let surfaceView = self.surfaceView(from: surface) else { return }
+            NotificationCenter.default.post(
+                name: Notification.ghosttyGotoPaneTab,
+                object: surfaceView,
+                userInfo: ["index": Int(v.index)]
+            )
         }
 
         private static func presentTerminal(

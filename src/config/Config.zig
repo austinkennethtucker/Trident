@@ -2266,6 +2266,25 @@ keybind: Keybinds = .{},
 /// Currently only supported on Linux (GTK).
 @"window-show-tab-bar": WindowShowTabBar = .auto,
 
+/// Position of the per-pane tab bar when a pane has multiple tabs.
+/// The tab bar auto-hides when a pane has only one tab.
+///
+/// Valid values are:
+///
+///  * `top`
+///
+///    Tab bar appears at the top of the pane.
+///
+///  * `bottom`
+///
+///    Tab bar appears at the bottom of the pane.
+///
+///  * `hidden`
+///
+///    Tab bar is never shown. Pane tabs are still navigable
+///    via keybind actions.
+@"pane-tab-bar-position": PaneTabBarPosition = .top,
+
 /// Background color for the window titlebar. This only takes effect if
 /// window-theme is set to ghostty. Currently only supported in the GTK app
 /// runtime.
@@ -9730,6 +9749,13 @@ pub const WindowShowTabBar = enum {
     always,
     auto,
     never,
+};
+
+/// See pane-tab-bar-position
+pub const PaneTabBarPosition = enum {
+    top,
+    bottom,
+    hidden,
 };
 
 /// See resize-overlay

@@ -213,6 +213,31 @@ class BaseTerminalController: NSWindowController,
             selector: #selector(ghosttySurfaceDragEndedNoTarget(_:)),
             name: .ghosttySurfaceDragEndedNoTarget,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyDidNewPaneTab(_:)),
+            name: Ghostty.Notification.ghosttyNewPaneTab,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyDidClosePaneTab(_:)),
+            name: Ghostty.Notification.ghosttyClosePaneTab,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyDidGotoPaneTabPrev(_:)),
+            name: Ghostty.Notification.ghosttyGotoPaneTabPrev,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyDidGotoPaneTabNext(_:)),
+            name: Ghostty.Notification.ghosttyGotoPaneTabNext,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyDidGotoPaneTab(_:)),
+            name: Ghostty.Notification.ghosttyGotoPaneTab,
+            object: nil)
 
         // Listen for local events that we need to know of outside of
         // single surface handlers.
@@ -770,6 +795,156 @@ class BaseTerminalController: NSWindowController,
             confirmUndo: false)
     }
 
+    // MARK: Pane Tab Actions
+
+    @objc private func ghosttyDidNewPaneTab(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+        let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+        let config = configAny as? Ghostty.SurfaceConfiguration
+        newPaneTab(at: target, baseConfig: config)
+    }
+
+    @objc private func ghosttyDidClosePaneTab(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+        closePaneTab(at: target)
+    }
+
+    @objc private func ghosttyDidGotoPaneTabPrev(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+        cyclePaneTab(at: target, direction: -1)
+    }
+
+    @objc private func ghosttyDidGotoPaneTabNext(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+        cyclePaneTab(at: target, direction: 1)
+    }
+
+    @objc private func ghosttyDidGotoPaneTab(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+        guard let index = notification.userInfo?["index"] as? Int else { return }
+        gotoPaneTab(at: target, index: index)
+    }
+
+    /// Handle pane tab actions from the SwiftUI view layer.
+    private func performPaneTabAction(_ op: TerminalSplitOperation.PaneTabOp) {
+        switch op {
+        case .new(let surface):
+            newPaneTab(at: surface)
+
+        case .close(let surface, let index):
+            closePaneTabAtIndex(surface: surface, index: index)
+
+        case .select(let surface, let index):
+            gotoPaneTab(at: surface, index: index)
+        }
+    }
+
+    /// Create a new pane tab in the focused surface's pane.
+    private func newPaneTab(at surface: Ghostty.SurfaceView, baseConfig config: Ghostty.SurfaceConfiguration? = nil) {
+        guard let ghostty_app = ghostty.app else { return }
+        let newView = Ghostty.SurfaceView(ghostty_app, baseConfig: config)
+        guard let paneTabGroup = paneTabGroup(for: surface) else { return }
+        let node = paneTabGroup.node
+        var group = paneTabGroup.group
+        group.addTab(newView)
+        replacePaneTabGroup(node: node, with: group, moveFocusTo: newView, moveFocusFrom: surface)
+    }
+
+    /// Close the active pane tab. If last tab, close the pane.
+    private func closePaneTab(at surface: Ghostty.SurfaceView) {
+        guard let paneTabGroup = paneTabGroup(for: surface) else { return }
+        let node = paneTabGroup.node
+        var group = paneTabGroup.group
+        let currentIndex = group.activeIndex
+        group.tabs.remove(at: currentIndex)
+
+        if group.tabs.isEmpty {
+            closeSurface(node)
+            return
+        }
+
+        if group.activeIndex >= group.tabs.count {
+            group.activeIndex = group.tabs.count - 1
+        }
+
+        replacePaneTabGroup(node: node, with: group, moveFocusTo: group.activeView, moveFocusFrom: surface)
+    }
+
+    /// Close a specific tab by index (from the tab bar UI).
+    private func closePaneTabAtIndex(surface: Ghostty.SurfaceView, index: Int) {
+        guard let paneTabGroup = paneTabGroup(for: surface) else { return }
+        let node = paneTabGroup.node
+        var group = paneTabGroup.group
+        guard index >= 0, index < group.tabCount else { return }
+
+        let wasActiveTab = index == group.activeIndex
+        group.tabs.remove(at: index)
+
+        if group.tabs.isEmpty {
+            closeSurface(node)
+            return
+        }
+
+        if group.activeIndex >= group.tabs.count {
+            group.activeIndex = group.tabs.count - 1
+        } else if index < group.activeIndex {
+            group.activeIndex -= 1
+        }
+
+        let focusTarget = wasActiveTab ? group.activeView : surface
+        replacePaneTabGroup(node: node, with: group, moveFocusTo: focusTarget, moveFocusFrom: surface)
+    }
+
+    /// Cycle to previous/next pane tab.
+    private func cyclePaneTab(at surface: Ghostty.SurfaceView, direction: Int) {
+        guard let paneTabGroup = paneTabGroup(for: surface) else { return }
+        let node = paneTabGroup.node
+        var group = paneTabGroup.group
+        guard group.tabCount > 1 else { return }
+
+        let newIndex = (group.activeIndex + direction + group.tabCount) % group.tabCount
+        group.activeIndex = newIndex
+        replacePaneTabGroup(node: node, with: group, moveFocusTo: group.activeView, moveFocusFrom: surface)
+    }
+
+    /// Jump to a specific pane tab by index.
+    private func gotoPaneTab(at surface: Ghostty.SurfaceView, index: Int) {
+        guard let paneTabGroup = paneTabGroup(for: surface) else { return }
+        let node = paneTabGroup.node
+        var group = paneTabGroup.group
+        guard index >= 0, index < group.tabCount else { return }
+
+        group.activeIndex = index
+        replacePaneTabGroup(node: node, with: group, moveFocusTo: group.activeView, moveFocusFrom: surface)
+    }
+
+    private func paneTabGroup(
+        for surface: Ghostty.SurfaceView
+    ) -> (node: SplitTree<Ghostty.SurfaceView>.Node, group: SplitTree<Ghostty.SurfaceView>.TabGroup)? {
+        guard let node = surfaceTree.root?.node(view: surface),
+              case .leaf(let group) = node else { return nil }
+        return (node, group)
+    }
+
+    private func replacePaneTabGroup(
+        node: SplitTree<Ghostty.SurfaceView>.Node,
+        with group: SplitTree<Ghostty.SurfaceView>.TabGroup,
+        moveFocusTo newSurface: Ghostty.SurfaceView? = nil,
+        moveFocusFrom oldSurface: Ghostty.SurfaceView? = nil
+    ) {
+        do {
+            let newTree = try surfaceTree.replacing(node: node, with: .leaf(group))
+            replaceSurfaceTree(newTree, moveFocusTo: newSurface, moveFocusFrom: oldSurface)
+        } catch {
+            Ghostty.logger.warning("failed to replace pane tab group: \(error)")
+        }
+    }
+
     // MARK: Local Events
 
     private func localEventHandler(_ event: NSEvent) -> NSEvent? {
@@ -879,6 +1054,8 @@ class BaseTerminalController: NSWindowController,
             splitDidResize(node: resize.node, to: resize.ratio)
         case .drop(let drop):
             splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
+        case .paneTab(let op):
+            performPaneTabAction(op)
         }
     }
 

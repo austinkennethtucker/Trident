@@ -352,6 +352,21 @@ pub const Action = union(Key) {
     /// Hide a named popup terminal.
     hide_popup: PopupAction,
 
+    /// Open a new tab within the focused pane without changing the split layout.
+    new_pane_tab,
+
+    /// Close the active pane tab. If it was the last tab, the pane closes.
+    close_pane_tab,
+
+    /// Navigate to the previous pane tab (wraps around).
+    goto_pane_tab_prev,
+
+    /// Navigate to the next pane tab (wraps around).
+    goto_pane_tab_next,
+
+    /// Jump to a specific pane tab by 0-based index.
+    goto_pane_tab: GotoPaneTab,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -422,6 +437,11 @@ pub const Action = union(Key) {
         toggle_popup,
         show_popup,
         hide_popup,
+        new_pane_tab,
+        close_pane_tab,
+        goto_pane_tab_prev,
+        goto_pane_tab_next,
+        goto_pane_tab,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -1033,6 +1053,11 @@ pub const SearchSelected = struct {
             .selected = if (self.selected) |s| @intCast(s) else -1,
         };
     }
+};
+
+// Sync with: ghostty_action_goto_pane_tab_s
+pub const GotoPaneTab = extern struct {
+    index: u16,
 };
 
 test {

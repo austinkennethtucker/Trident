@@ -202,7 +202,9 @@ class PopupController: BaseTerminalController {
         withConfirmation: Bool = true
     ) {
         // For a root leaf whose process has exited, empty the tree (triggers hide).
-        if surfaceTree.root == node, case .leaf(let surface) = node, surface.processExited {
+        if surfaceTree.root == node,
+           case .leaf(let group) = node,
+           group.activeView.processExited {
             surfaceTree = .init()
             return
         }

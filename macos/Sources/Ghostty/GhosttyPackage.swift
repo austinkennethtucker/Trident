@@ -447,6 +447,13 @@ extension Ghostty.Notification {
     /// Notifications related to key tables
     static let didChangeKeyTable = Notification.Name("com.mitchellh.ghostty.didChangeKeyTable")
     static let KeyTableKey = didChangeKeyTable.rawValue + ".action"
+
+    /// Pane tab actions
+    static let ghosttyNewPaneTab = Notification.Name("com.mitchellh.ghostty.newPaneTab")
+    static let ghosttyClosePaneTab = Notification.Name("com.mitchellh.ghostty.closePaneTab")
+    static let ghosttyGotoPaneTabPrev = Notification.Name("com.mitchellh.ghostty.gotoPaneTabPrev")
+    static let ghosttyGotoPaneTabNext = Notification.Name("com.mitchellh.ghostty.gotoPaneTabNext")
+    static let ghosttyGotoPaneTab = Notification.Name("com.mitchellh.ghostty.gotoPaneTab")
 }
 
 // Make the input enum hashable.

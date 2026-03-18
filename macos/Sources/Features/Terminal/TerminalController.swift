@@ -1028,10 +1028,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // If we have only a single surface (no splits) and there is a default size then
         // we should resize to that default size.
-        if case let .leaf(view) = surfaceTree.root {
+        if case let .leaf(group) = surfaceTree.root {
             // If this is our first surface then our focused surface will be nil
             // so we force the focused surface to the leaf.
-            focusedSurface = view
+            focusedSurface = group.activeView
         }
 
         // Initialize our content view to the SwiftUI root

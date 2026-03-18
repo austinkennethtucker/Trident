@@ -7,6 +7,7 @@ import SwiftUI
 enum TerminalSplitOperation {
     case resize(Resize)
     case drop(Drop)
+    case paneTab(PaneTabOp)
 
     struct Resize {
         let node: SplitTree<Ghostty.SurfaceView>.Node
@@ -22,6 +23,12 @@ enum TerminalSplitOperation {
 
         /// The zone it was dropped to determine how to split the destination.
         let zone: TerminalSplitDropZone
+    }
+
+    enum PaneTabOp {
+        case new(Ghostty.SurfaceView)
+        case close(Ghostty.SurfaceView, Int)
+        case select(Ghostty.SurfaceView, Int)
     }
 }
 
@@ -53,8 +60,11 @@ private struct TerminalSplitSubtreeView: View {
 
     var body: some View {
         switch node {
-        case .leaf(let leafView):
-            TerminalSplitLeaf(surfaceView: leafView, isSplit: !isRoot, action: action)
+        case .leaf(let tabGroup):
+            TerminalSplitLeaf(
+                tabGroup: tabGroup,
+                isSplit: !isRoot,
+                action: action)
 
         case .split(let split):
             let splitViewDirection: SplitViewDirection = switch split.direction {
@@ -87,18 +97,42 @@ private struct TerminalSplitSubtreeView: View {
 }
 
 private struct TerminalSplitLeaf: View {
-    let surfaceView: Ghostty.SurfaceView
+    @EnvironmentObject private var ghostty: Ghostty.App
+
+    let tabGroup: SplitTree<Ghostty.SurfaceView>.TabGroup
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
 
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
 
+    private var surfaceView: Ghostty.SurfaceView {
+        tabGroup.activeView
+    }
+
+    private var tabBarPosition: Ghostty.Config.PaneTabBarPosition {
+        ghostty.config.paneTabBarPosition
+    }
+
+    private var showTabBar: Bool {
+        tabGroup.tabCount > 1 && tabBarPosition != .hidden
+    }
+
     var body: some View {
         GeometryReader { geometry in
-            Ghostty.InspectableSurface(
-                surfaceView: surfaceView,
-                isSplit: isSplit)
+            VStack(spacing: 0) {
+                if showTabBar && tabBarPosition == .top {
+                    tabBar
+                }
+
+                Ghostty.InspectableSurface(
+                    surfaceView: surfaceView,
+                    isSplit: isSplit)
+
+                if showTabBar && tabBarPosition == .bottom {
+                    tabBar
+                }
+            }
             .background {
                 // If we're dragging ourself, we hide the entire drop zone. This makes
                 // it so that a released drop animates back to its source properly
@@ -133,6 +167,22 @@ private struct TerminalSplitLeaf: View {
     private enum DropState: Equatable {
         case idle
         case dropping(TerminalSplitDropZone)
+    }
+
+    private var tabBar: some View {
+        PaneTabBar(
+            tabGroup: tabGroup,
+            position: tabBarPosition,
+            onSelect: { index in
+                action(.paneTab(.select(surfaceView, index)))
+            },
+            onClose: { index in
+                action(.paneTab(.close(surfaceView, index)))
+            },
+            onNew: {
+                action(.paneTab(.new(surfaceView)))
+            }
+        )
     }
 
     private struct SplitDropDelegate: DropDelegate {

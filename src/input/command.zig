@@ -537,6 +537,30 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Equalize the size of all splits.",
         }},
 
+        .new_pane_tab => comptime &.{.{
+            .action = .new_pane_tab,
+            .title = "New Pane Tab",
+            .description = "Open a new tab in the focused pane.",
+        }},
+
+        .close_pane_tab => comptime &.{.{
+            .action = .close_pane_tab,
+            .title = "Close Pane Tab",
+            .description = "Close the active tab in the focused pane.",
+        }},
+
+        .goto_pane_tab_prev => comptime &.{.{
+            .action = .goto_pane_tab_prev,
+            .title = "Previous Pane Tab",
+            .description = "Switch to the previous pane tab.",
+        }},
+
+        .goto_pane_tab_next => comptime &.{.{
+            .action = .goto_pane_tab_next,
+            .title = "Next Pane Tab",
+            .description = "Switch to the next pane tab.",
+        }},
+
         .reset_window_size => comptime &.{.{
             .action = .reset_window_size,
             .title = "Reset Window Size",
@@ -712,6 +736,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .write_scrollback_file,
         .goto_tab,
         .resize_split,
+        .goto_pane_tab,
         .activate_key_table,
         .activate_key_table_once,
         .deactivate_key_table,

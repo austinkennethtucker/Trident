@@ -548,6 +548,16 @@ extension Ghostty {
             )
         }
 
+        var paneTabBarPosition: PaneTabBarPosition {
+            let defaultValue = PaneTabBarPosition.top
+            guard let config = self.config else { return defaultValue }
+            var v: UnsafePointer<Int8>?
+            let key = "pane-tab-bar-position"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            guard let ptr = v else { return defaultValue }
+            return PaneTabBarPosition(rawValue: String(cString: ptr)) ?? defaultValue
+        }
+
         #if canImport(AppKit)
         var quickTerminalPosition: QuickTerminalPosition {
             guard let config = self.config else { return .top }
@@ -935,6 +945,12 @@ extension Ghostty.Config {
             default: return false
             }
         }
+    }
+
+    enum PaneTabBarPosition: String {
+        case top
+        case bottom
+        case hidden
     }
 
     enum WindowDecoration: String {

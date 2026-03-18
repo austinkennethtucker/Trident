@@ -298,14 +298,14 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         // If this isn't a final leaf then we're dealing with a split closure
-        guard case .leaf(let surface) = node else {
+        guard case .leaf(let group) = node else {
             super.closeSurface(node, withConfirmation: withConfirmation)
             return
         }
 
         // If its the root, we check if the process exited. If it did,
         // then we do empty the tree.
-        if surface.processExited {
+        if group.activeView.processExited {
             surfaceTree = .init()
             return
         }

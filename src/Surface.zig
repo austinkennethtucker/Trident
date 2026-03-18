@@ -6050,6 +6050,36 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .new_pane_tab => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .new_pane_tab,
+            {},
+        ),
+
+        .close_pane_tab => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .close_pane_tab,
+            {},
+        ),
+
+        .goto_pane_tab_prev => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .goto_pane_tab_prev,
+            {},
+        ),
+
+        .goto_pane_tab_next => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .goto_pane_tab_next,
+            {},
+        ),
+
+        .goto_pane_tab => |index| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .goto_pane_tab,
+            .{ .index = index },
+        ),
+
         .toggle_split_zoom => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_split_zoom,
