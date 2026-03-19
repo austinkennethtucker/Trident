@@ -102,6 +102,10 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
   - `macos/build.nu [--scheme Ghostty] [--configuration Debug] [--action build]`
   - Output: `macos/build/<configuration>/Trident.app`
 - Run macOS unit tests: `macos/build.nu --action test`
+- **Install to /Applications:** `macos/install.nu` (builds Release, signs, copies to `/Applications/Trident.app`)
+  - Skip rebuild: `macos/install.nu --skip-build`
+  - Custom identity: `macos/install.nu --identity "Developer ID Application: Name (TEAM)"`
+- **Create DMG:** `macos/install.nu --dmg` (builds, signs, creates `Trident.dmg`, notarizes, staples)
 
 ## Popup Terminal (`src/apprt/popup.zig`)
 
