@@ -3,6 +3,7 @@ import SwiftUI
 /// Complete browser pane view with address bar and web content.
 struct BrowserPaneView: View {
     @ObservedObject var model: BrowserPaneModel
+    @State private var jsInput: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,6 +44,22 @@ struct BrowserPaneView: View {
                         .foregroundColor(.orange)
                         .help("Traffic routed through proxy: \(model.proxyURL!)")
                 }
+
+                // DOM Inspector toggle
+                Button(action: { model.toggleInspectorOverlay() }) {
+                    Image(systemName: "eye")
+                        .foregroundColor(model.inspectorOverlay?.isActive == true ? .blue : .primary)
+                }
+                .buttonStyle(.plain)
+                .help("Toggle DOM Inspector")
+
+                // JS Console toggle
+                Button(action: { model.jsConsoleVisible.toggle() }) {
+                    Image(systemName: "terminal")
+                        .foregroundColor(model.jsConsoleVisible ? .blue : .primary)
+                }
+                .buttonStyle(.plain)
+                .help("Toggle JS Console")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -56,6 +73,42 @@ struct BrowserPaneView: View {
 
             // Web content
             BrowserWebView(model: model)
+
+            // JS Console panel
+            if model.jsConsoleVisible {
+                VStack(spacing: 0) {
+                    Divider()
+
+                    // Output area
+                    ScrollView {
+                        Text(model.jsConsoleOutput)
+                            .font(.system(size: 11, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(4)
+                            .textSelection(.enabled)
+                    }
+                    .frame(height: 120)
+                    .background(Color(nsColor: .textBackgroundColor))
+
+                    // Input area
+                    HStack(spacing: 4) {
+                        Text(">")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.secondary)
+                        TextField("JavaScript", text: $jsInput)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 11, design: .monospaced))
+                            .onSubmit {
+                                guard !jsInput.isEmpty else { return }
+                                model.runJavaScript(jsInput)
+                                jsInput = ""
+                            }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                }
+            }
         }
     }
 }

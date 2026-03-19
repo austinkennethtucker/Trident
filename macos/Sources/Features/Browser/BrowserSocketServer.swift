@@ -226,6 +226,149 @@ class BrowserSocketServer {
                 "loading": model?.isLoading as Any,
             ]
 
+        case "js_eval":
+            guard let code = command["code"] as? String else {
+                return ["ok": false, "error": "missing 'code' parameter"]
+            }
+            let semaphore = DispatchSemaphore(value: 0)
+            var result: Any? = nil
+            var jsError: Error? = nil
+            model?.evaluateJavaScript(code) { r, e in
+                result = r
+                jsError = e
+                semaphore.signal()
+            }
+            semaphore.wait()
+            if let err = jsError {
+                return ["ok": false, "error": err.localizedDescription]
+            }
+            // Convert result to JSON-safe type
+            let jsonResult: Any = result ?? NSNull()
+            return ["ok": true, "result": jsonResult]
+
+        case "dom_snapshot":
+            let semaphore = DispatchSemaphore(value: 0)
+            var html: String = ""
+            model?.evaluateJavaScript("document.documentElement.outerHTML") { r, _ in
+                html = r as? String ?? ""
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return ["ok": true, "html": html]
+
+        case "screenshot":
+            let semaphore = DispatchSemaphore(value: 0)
+            var pngData: Data? = nil
+            model?.takeSnapshot { data in
+                pngData = data
+                semaphore.signal()
+            }
+            semaphore.wait()
+            if let data = pngData {
+                return ["ok": true, "png_b64": data.base64EncodedString()]
+            }
+            return ["ok": false, "error": "screenshot failed"]
+
+        case "cookies_get":
+            let semaphore = DispatchSemaphore(value: 0)
+            var cookieList: [[String: Any]] = []
+            model?.getCookies { cookies in
+                cookieList = cookies.map { cookie in
+                    [
+                        "name": cookie.name,
+                        "value": cookie.value,
+                        "domain": cookie.domain,
+                        "path": cookie.path,
+                        "secure": cookie.isSecure,
+                        "httpOnly": cookie.isHTTPOnly
+                    ]
+                }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return ["ok": true, "cookies": cookieList]
+
+        case "cookies_set":
+            guard let props = command["cookie"] as? [String: Any],
+                  let name = props["name"] as? String,
+                  let value = props["value"] as? String,
+                  let domain = props["domain"] as? String else {
+                return ["ok": false, "error": "missing cookie properties"]
+            }
+            var cookieProps: [HTTPCookiePropertyKey: Any] = [
+                .name: name,
+                .value: value,
+                .domain: domain,
+                .path: props["path"] as? String ?? "/"
+            ]
+            if let secure = props["secure"] as? Bool, secure {
+                cookieProps[.secure] = "TRUE"
+            }
+            guard let cookie = HTTPCookie(properties: cookieProps) else {
+                return ["ok": false, "error": "invalid cookie"]
+            }
+            let semaphore = DispatchSemaphore(value: 0)
+            model?.setCookie(cookie) { semaphore.signal() }
+            semaphore.wait()
+            return ["ok": true]
+
+        case "session_export":
+            let semaphore = DispatchSemaphore(value: 0)
+            var cookieList: [[String: Any]] = []
+            var localStorage: String = "{}"
+
+            model?.getCookies { cookies in
+                cookieList = cookies.map { ["name": $0.name, "value": $0.value, "domain": $0.domain, "path": $0.path, "secure": $0.isSecure] }
+                semaphore.signal()
+            }
+            semaphore.wait()
+
+            let semaphore2 = DispatchSemaphore(value: 0)
+            model?.evaluateJavaScript("JSON.stringify(localStorage)") { r, _ in
+                localStorage = r as? String ?? "{}"
+                semaphore2.signal()
+            }
+            semaphore2.wait()
+
+            return ["ok": true, "session": ["cookies": cookieList, "localStorage": localStorage]]
+
+        case "session_import":
+            guard let session = command["session"] as? [String: Any] else {
+                return ["ok": false, "error": "missing 'session' parameter"]
+            }
+
+            // Import cookies
+            if let cookies = session["cookies"] as? [[String: Any]] {
+                for c in cookies {
+                    guard let name = c["name"] as? String,
+                          let value = c["value"] as? String,
+                          let domain = c["domain"] as? String else { continue }
+                    var props: [HTTPCookiePropertyKey: Any] = [
+                        .name: name, .value: value, .domain: domain,
+                        .path: c["path"] as? String ?? "/"
+                    ]
+                    if let secure = c["secure"] as? Bool, secure {
+                        props[.secure] = "TRUE"
+                    }
+                    if let cookie = HTTPCookie(properties: props) {
+                        let sem = DispatchSemaphore(value: 0)
+                        model?.setCookie(cookie) { sem.signal() }
+                        sem.wait()
+                    }
+                }
+            }
+
+            // Import localStorage
+            if let ls = session["localStorage"] as? String {
+                let escaped = ls.replacingOccurrences(of: "'", with: "\\'")
+                let js = "Object.entries(JSON.parse('\(escaped)')).forEach(([k,v])=>localStorage.setItem(k,v))"
+                let sem = DispatchSemaphore(value: 0)
+                model?.evaluateJavaScript(js) { _, _ in sem.signal() }
+                sem.wait()
+            }
+
+            return ["ok": true]
+
         default:
             return ["ok": false, "error": "unknown command"]
         }

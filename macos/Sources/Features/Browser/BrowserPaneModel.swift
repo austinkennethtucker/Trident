@@ -25,6 +25,9 @@ class BrowserPaneModel: NSObject, ObservableObject {
     private var webView: WKWebView?
     private var observations: [NSKeyValueObservation] = []
     private(set) var socketServer: BrowserSocketServer?
+    var inspectorOverlay: BrowserInspectorOverlay?
+    @Published var jsConsoleVisible: Bool = false
+    @Published var jsConsoleOutput: String = ""
 
     init(proxyURL: String? = nil, proxyCertPath: String? = nil, tlsStrict: Bool = true) {
         self.proxyURL = proxyURL
@@ -49,6 +52,8 @@ class BrowserPaneModel: NSObject, ObservableObject {
         self.webView = webView
         observations.forEach { $0.invalidate() }
         observations.removeAll()
+
+        self.inspectorOverlay = BrowserInspectorOverlay(webView: webView)
 
         observations.append(webView.observe(\.url) { [weak self] wv, _ in
             DispatchQueue.main.async {
@@ -135,6 +140,23 @@ class BrowserPaneModel: NSObject, ObservableObject {
             }
             store.getAllCookies { cookies in
                 completion(cookies)
+            }
+        }
+    }
+
+    func toggleInspectorOverlay() {
+        inspectorOverlay?.toggle()
+    }
+
+    func runJavaScript(_ code: String) {
+        evaluateJavaScript(code) { [weak self] result, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self?.jsConsoleOutput += "> \(code)\nError: \(error.localizedDescription)\n\n"
+                } else {
+                    let output = result.map { "\($0)" } ?? "undefined"
+                    self?.jsConsoleOutput += "> \(code)\n\(output)\n\n"
+                }
             }
         }
     }
