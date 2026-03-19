@@ -36,3 +36,12 @@ rm -f "$TARBALL"
 
 echo "==> Installed:"
 zig version
+
+# Add to PATH in shell profile if not already there
+PROFILE="${HOME}/.bashrc"
+[ -f "${HOME}/.zshrc" ] && PROFILE="${HOME}/.zshrc"
+if ! grep -q "/usr/local/bin" "$PROFILE" 2>/dev/null; then
+    echo 'export PATH="/usr/local/bin:$PATH"' >> "$PROFILE"
+    echo "==> Added /usr/local/bin to PATH in ${PROFILE}"
+    echo "    Run: source ${PROFILE}"
+fi
