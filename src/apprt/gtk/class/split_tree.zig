@@ -221,6 +221,11 @@ pub const SplitTree = extern struct {
         /// close dialog.
         pending_close: ?Surface.Tree.Node.Handle,
 
+        /// Used to store state about a pending pane tab close for the
+        /// close dialog. Separate from pending_close because pane tab
+        /// closes route through closePaneTab, not closeSurfaceHandle.
+        pending_pane_tab_close: ?*Surface = null,
+
         /// Pane tab groups keyed by the active surface in the tree.
         pane_tab_groups: std.AutoHashMapUnmanaged(*Surface, *PaneTabState) = .empty,
 
@@ -478,7 +483,38 @@ pub const SplitTree = extern struct {
         try self.swapPaneTabActive(info.handle, info.active_surface, state.activeTab());
     }
 
-    pub fn closePaneTab(self: *Self, surface: *Surface) Allocator.Error!void {
+    pub fn closePaneTab(self: *Self, surface: *Surface) void {
+        // Check if we need quit confirmation before closing.
+        if (surface.core()) |core| {
+            if (core.needsConfirmQuit()) {
+                const priv = self.private();
+                priv.pending_pane_tab_close = surface;
+                const dialog: *CloseConfirmationDialog = .new(.surface);
+                _ = CloseConfirmationDialog.signals.@"close-request".connect(
+                    dialog,
+                    *Self,
+                    closePaneTabConfirmationClose,
+                    self,
+                    .{},
+                );
+                dialog.present(self.as(gtk.Widget));
+                return;
+            }
+        }
+        self.closePaneTabForce(surface);
+    }
+
+    fn closePaneTabConfirmationClose(
+        _: ?*CloseConfirmationDialog,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        const surface = priv.pending_pane_tab_close orelse return;
+        priv.pending_pane_tab_close = null;
+        self.closePaneTabForce(surface);
+    }
+
+    fn closePaneTabForce(self: *Self, surface: *Surface) void {
         const info = self.findPaneTabInfo(surface) orelse return;
         const state = info.state orelse {
             self.closeSurfaceHandle(info.handle);
@@ -499,13 +535,18 @@ pub const SplitTree = extern struct {
         if (state.tabs.items.len == 1) {
             const remaining = state.activeTab();
             _ = self.private().pane_tab_groups.remove(info.active_surface);
-            try self.swapLeaf(info.handle, info.active_surface, remaining);
+            self.swapLeaf(info.handle, info.active_surface, remaining) catch |err| {
+                log.warn("unable to swap leaf for pane tab close: {}", .{err});
+                return;
+            };
             state.deinit();
             return;
         }
 
         const next_active = if (was_active) state.activeTab() else info.active_surface;
-        try self.swapPaneTabActive(info.handle, info.active_surface, next_active);
+        self.swapPaneTabActive(info.handle, info.active_surface, next_active) catch |err| {
+            log.warn("unable to swap pane tab active: {}", .{err});
+        };
     }
 
     pub fn gotoPaneTabRelative(
@@ -538,11 +579,11 @@ pub const SplitTree = extern struct {
         self: *Self,
         active_surface: *Surface,
         index: usize,
-    ) Allocator.Error!void {
+    ) void {
         const info = self.findPaneTabInfo(active_surface) orelse return;
         const state = info.state orelse return;
         if (index >= state.tabs.items.len) return;
-        try self.closePaneTab(state.tabs.items[index]);
+        self.closePaneTab(state.tabs.items[index]);
     }
 
     const PaneTabInfo = struct {
@@ -1002,9 +1043,10 @@ pub const SplitTree = extern struct {
         const priv = self.private();
         priv.pending_close = null;
 
-        // Find the surface in the tree to verify this is valid and
-        // set our pending close handle.
-        priv.pending_close = handle: {
+        // Find the surface in the tree. If not found, it may be a
+        // dormant pane tab (not visible in the tree). Route through
+        // closePaneTab which handles confirmation itself.
+        const handle: Surface.Tree.Node.Handle = handle: {
             const tree = self.getTree() orelse return;
             var it = tree.iterator();
             while (it.next()) |entry| {
@@ -1013,15 +1055,21 @@ pub const SplitTree = extern struct {
                 }
             }
 
+            // Surface not in tree — it's a dormant pane tab.
+            self.closePaneTab(surface);
             return;
         };
 
-        if (priv.pending_close == null) {
-            self.closePaneTab(surface) catch |err| {
-                log.warn("unable to close pane tab from close request: {}", .{err});
-            };
+        // Check if this surface is the active tab in a pane tab group.
+        // If so, route through closePaneTab which handles confirmation
+        // and preserves sibling tabs.
+        if (priv.pane_tab_groups.contains(surface)) {
+            self.closePaneTab(surface);
             return;
         }
+
+        // Regular surface (not part of a pane tab group).
+        priv.pending_close = handle;
 
         // If we don't need to confirm then just close immediately.
         if (!core.needsConfirmQuit()) {
@@ -1326,9 +1374,7 @@ pub const SplitTree = extern struct {
         self: *Self,
     ) callconv(.c) void {
         const surface = bar.getActiveSurface() orelse return;
-        self.closePaneTabAtIndex(surface, @intCast(index)) catch |err| {
-            log.warn("unable to close pane tab: {}", .{err});
-        };
+        self.closePaneTabAtIndex(surface, @intCast(index));
     }
 
     fn paneTabBarNewRequested(

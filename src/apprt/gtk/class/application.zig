@@ -2025,7 +2025,7 @@ const Action = struct {
                     SplitTree,
                     surface.as(gtk.Widget),
                 ) orelse return false;
-                tree.closePaneTab(surface) catch return false;
+                tree.closePaneTab(surface);
                 return true;
             },
         }

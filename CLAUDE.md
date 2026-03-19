@@ -124,9 +124,9 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
 - Each split pane can hold multiple terminal surfaces with independent tab switching
 - Tab bar auto-hides for single-tab panes; appears for 2+ tabs
 - Config: `pane-tab-bar-position` (`top`, `bottom`, `hidden`)
-- Core model: `src/PaneTabGroup.zig` (cross-platform, has unit tests)
-- SplitTree leaf nodes are now `TabGroup`s: `.leaf(TabGroup)` not `.leaf(view:)` — all pattern matches on leaf nodes must destructure `TabGroup`
-- macOS: `macos/Sources/Features/Splits/PaneTabBar.swift` (tab bar UI), split tree changes in `SplitTree.swift`
+- GTK: `src/apprt/gtk/class/split_tree.zig` tracks tab groups in a `pane_tab_groups` HashMap (keyed by active surface); tree leaves remain `*Surface`
+- GTK tab bar UI: `src/apprt/gtk/class/pane_tab_bar.zig`
+- macOS: `macos/Sources/Features/Splits/PaneTabBar.swift` (tab bar UI), `SplitTree.swift` uses `TabGroup` leaf nodes
 - Actions: `new_pane_tab`, `close_pane_tab`, `goto_pane_tab_prev`, `goto_pane_tab_next`, `goto_pane_tab:<index>`
 - Action dispatch: `Ghostty.App.swift` → NotificationCenter → `BaseTerminalController` pane tab handlers
 
