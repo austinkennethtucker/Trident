@@ -1065,6 +1065,82 @@ extension Ghostty {
         }
     }
 
+    // MARK: Focused Split Border Overlay
+
+    struct FocusedSplitBorderOverlay: View {
+        let focused: Bool
+        let color: Color
+        let neighbors: PaneNeighbors
+
+        private let borderWidth: CGFloat = 2
+        private let arrowSize: CGFloat = 6
+
+        var body: some View {
+            GeometryReader { geometry in
+                ZStack {
+                    // Border
+                    Rectangle()
+                        .strokeBorder(color, lineWidth: borderWidth)
+
+                    // Arrow markers on internal edges
+                    if neighbors.contains(.hasTop) {
+                        arrowMarker(direction: .down)
+                            .position(x: geometry.size.width / 2, y: arrowSize / 2 + borderWidth)
+                    }
+                    if neighbors.contains(.hasBottom) {
+                        arrowMarker(direction: .up)
+                            .position(x: geometry.size.width / 2, y: geometry.size.height - arrowSize / 2 - borderWidth)
+                    }
+                    if neighbors.contains(.hasLeft) {
+                        arrowMarker(direction: .right)
+                            .position(x: arrowSize / 2 + borderWidth, y: geometry.size.height / 2)
+                    }
+                    if neighbors.contains(.hasRight) {
+                        arrowMarker(direction: .left)
+                            .position(x: geometry.size.width - arrowSize / 2 - borderWidth, y: geometry.size.height / 2)
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            .opacity(focused ? 1.0 : 0.0)
+            .animation(.easeInOut(duration: 0.2), value: focused)
+        }
+
+        private enum ArrowDirection {
+            case up, down, left, right
+        }
+
+        @ViewBuilder
+        private func arrowMarker(direction: ArrowDirection) -> some View {
+            Path { path in
+                switch direction {
+                case .down:
+                    path.move(to: CGPoint(x: -arrowSize, y: -arrowSize / 2))
+                    path.addLine(to: CGPoint(x: 0, y: arrowSize / 2))
+                    path.addLine(to: CGPoint(x: arrowSize, y: -arrowSize / 2))
+                    path.closeSubpath()
+                case .up:
+                    path.move(to: CGPoint(x: -arrowSize, y: arrowSize / 2))
+                    path.addLine(to: CGPoint(x: 0, y: -arrowSize / 2))
+                    path.addLine(to: CGPoint(x: arrowSize, y: arrowSize / 2))
+                    path.closeSubpath()
+                case .right:
+                    path.move(to: CGPoint(x: -arrowSize / 2, y: -arrowSize))
+                    path.addLine(to: CGPoint(x: arrowSize / 2, y: 0))
+                    path.addLine(to: CGPoint(x: -arrowSize / 2, y: arrowSize))
+                    path.closeSubpath()
+                case .left:
+                    path.move(to: CGPoint(x: arrowSize / 2, y: -arrowSize))
+                    path.addLine(to: CGPoint(x: -arrowSize / 2, y: 0))
+                    path.addLine(to: CGPoint(x: arrowSize / 2, y: arrowSize))
+                    path.closeSubpath()
+                }
+            }
+            .fill(color)
+            .frame(width: arrowSize * 2, height: arrowSize * 2)
+        }
+    }
+
     // MARK: Readonly Badge
 
     /// A badge overlay that indicates a surface is in readonly mode.
