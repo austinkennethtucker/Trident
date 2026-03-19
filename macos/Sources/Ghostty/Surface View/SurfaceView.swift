@@ -57,6 +57,7 @@ extension Ghostty {
 
         @EnvironmentObject private var ghostty: Ghostty.App
         @Environment(\.ghosttyLastFocusedSurface) private var lastFocusedSurface
+        @Environment(\.paneNeighbors) private var paneNeighbors
 
         private var isFocusedSurface: Bool {
             surfaceFocus || lastFocusedSurface?.value === surfaceView
@@ -211,6 +212,16 @@ extension Ghostty {
 
                 // Show a highlight effect when this surface needs attention
                 HighlightOverlay(highlighted: surfaceView.highlighted)
+
+                // Show focused split border if enabled and this is the focused pane in a split.
+                // Uses windowFocus so the border hides when the window is inactive.
+                if isSplit && ghostty.config.focusedSplitBorder {
+                    FocusedSplitBorderOverlay(
+                        focused: isFocusedSurface && windowFocus,
+                        color: ghostty.config.focusedSplitBorderColor,
+                        neighbors: paneNeighbors
+                    )
+                }
 
                 // If our surface is not healthy, then we render an error view over it.
                 if !surfaceView.healthy {
@@ -1065,6 +1076,82 @@ extension Ghostty {
         }
     }
 
+    // MARK: Focused Split Border Overlay
+
+    struct FocusedSplitBorderOverlay: View {
+        let focused: Bool
+        let color: Color
+        let neighbors: PaneNeighbors
+
+        private let borderWidth: CGFloat = 2
+        private let arrowSize: CGFloat = 6
+
+        var body: some View {
+            GeometryReader { geometry in
+                ZStack {
+                    // Border
+                    Rectangle()
+                        .strokeBorder(color, lineWidth: borderWidth)
+
+                    // Arrow markers on internal edges
+                    if neighbors.contains(.hasTop) {
+                        arrowMarker(direction: .down)
+                            .position(x: geometry.size.width / 2, y: arrowSize / 2 + borderWidth)
+                    }
+                    if neighbors.contains(.hasBottom) {
+                        arrowMarker(direction: .up)
+                            .position(x: geometry.size.width / 2, y: geometry.size.height - arrowSize / 2 - borderWidth)
+                    }
+                    if neighbors.contains(.hasLeft) {
+                        arrowMarker(direction: .right)
+                            .position(x: arrowSize / 2 + borderWidth, y: geometry.size.height / 2)
+                    }
+                    if neighbors.contains(.hasRight) {
+                        arrowMarker(direction: .left)
+                            .position(x: geometry.size.width - arrowSize / 2 - borderWidth, y: geometry.size.height / 2)
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            .opacity(focused ? 1.0 : 0.0)
+            .animation(.easeInOut(duration: 0.2), value: focused)
+        }
+
+        private enum ArrowDirection {
+            case up, down, left, right
+        }
+
+        @ViewBuilder
+        private func arrowMarker(direction: ArrowDirection) -> some View {
+            Path { path in
+                switch direction {
+                case .down:
+                    path.move(to: CGPoint(x: 0, y: 0))
+                    path.addLine(to: CGPoint(x: arrowSize, y: arrowSize))
+                    path.addLine(to: CGPoint(x: arrowSize * 2, y: 0))
+                    path.closeSubpath()
+                case .up:
+                    path.move(to: CGPoint(x: 0, y: arrowSize))
+                    path.addLine(to: CGPoint(x: arrowSize, y: 0))
+                    path.addLine(to: CGPoint(x: arrowSize * 2, y: arrowSize))
+                    path.closeSubpath()
+                case .right:
+                    path.move(to: CGPoint(x: 0, y: 0))
+                    path.addLine(to: CGPoint(x: arrowSize, y: arrowSize))
+                    path.addLine(to: CGPoint(x: 0, y: arrowSize * 2))
+                    path.closeSubpath()
+                case .left:
+                    path.move(to: CGPoint(x: arrowSize, y: 0))
+                    path.addLine(to: CGPoint(x: 0, y: arrowSize))
+                    path.addLine(to: CGPoint(x: arrowSize, y: arrowSize * 2))
+                    path.closeSubpath()
+                }
+            }
+            .fill(color)
+            .frame(width: arrowSize * 2, height: arrowSize * 2)
+        }
+    }
+
     // MARK: Readonly Badge
 
     /// A badge overlay that indicates a surface is in readonly mode.
@@ -1212,6 +1299,25 @@ extension Ghostty {
     #endif
 }
 
+// MARK: Pane Neighbors
+
+/// Indicates which edges of a pane border other panes (internal edges).
+/// Used by FocusedSplitBorderOverlay to place arrow markers.
+struct PaneNeighbors: OptionSet {
+    let rawValue: Int
+
+    static let hasTop    = PaneNeighbors(rawValue: 1 << 0)
+    static let hasBottom = PaneNeighbors(rawValue: 1 << 1)
+    static let hasLeft   = PaneNeighbors(rawValue: 1 << 2)
+    static let hasRight  = PaneNeighbors(rawValue: 1 << 3)
+
+    static let none: PaneNeighbors = []
+}
+
+private struct PaneNeighborsKey: EnvironmentKey {
+    static let defaultValue: PaneNeighbors = .none
+}
+
 // MARK: Surface Environment Keys
 
 private struct GhosttySurfaceViewKey: EnvironmentKey {
@@ -1225,6 +1331,11 @@ private struct GhosttyLastFocusedSurfaceKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    var paneNeighbors: PaneNeighbors {
+        get { self[PaneNeighborsKey.self] }
+        set { self[PaneNeighborsKey.self] = newValue }
+    }
+
     var ghosttySurfaceView: Ghostty.SurfaceView? {
         get { self[GhosttySurfaceViewKey.self] }
         set { self[GhosttySurfaceViewKey.self] = newValue }
@@ -1237,6 +1348,10 @@ extension EnvironmentValues {
 }
 
 extension View {
+    func paneNeighbors(_ neighbors: PaneNeighbors) -> some View {
+        environment(\.paneNeighbors, neighbors)
+    }
+
     func ghosttySurfaceView(_ surfaceView: Ghostty.SurfaceView?) -> some View {
         environment(\.ghosttySurfaceView, surfaceView)
     }

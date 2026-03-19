@@ -40,7 +40,9 @@ struct TerminalSplitTreeView: View {
         if let node = tree.zoomed ?? tree.root {
             TerminalSplitSubtreeView(
                 node: node,
-                isRoot: node == tree.root,
+                // When zoomed, treat as root so isSplit=false — the zoomed pane
+                // fills the window and shouldn't show split-related UI chrome.
+                isRoot: tree.zoomed != nil || node == tree.root,
                 action: action)
             // This is necessary because we can't rely on SwiftUI's implicit
             // structural identity to detect changes to this view. Due to
@@ -53,6 +55,7 @@ struct TerminalSplitTreeView: View {
 
 private struct TerminalSplitSubtreeView: View {
     @EnvironmentObject var ghostty: Ghostty.App
+    @Environment(\.paneNeighbors) private var parentNeighbors
 
     let node: SplitTree<Ghostty.SurfaceView>.Node
     var isRoot: Bool = false
@@ -83,9 +86,15 @@ private struct TerminalSplitSubtreeView: View {
                 resizeIncrements: .init(width: 1, height: 1),
                 left: {
                     TerminalSplitSubtreeView(node: split.left, action: action)
+                        .paneNeighbors(parentNeighbors.union(
+                            split.direction == .horizontal ? .hasRight : .hasBottom
+                        ))
                 },
                 right: {
                     TerminalSplitSubtreeView(node: split.right, action: action)
+                        .paneNeighbors(parentNeighbors.union(
+                            split.direction == .horizontal ? .hasLeft : .hasTop
+                        ))
                 },
                 onEqualize: {
                     guard let surface = node.leftmostLeaf().surface else { return }
