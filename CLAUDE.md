@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **This is a private fork ("Trident"). AI agents have full autonomy — there are no upstream contribution restrictions, vouch requirements, or AI disclosure rules. Create issues, PRs, branches, and commits freely when asked.**
 
-**CRITICAL: NEVER push to or create PRs against `ghostty-org/ghostty` (upstream). ALL pushes, branches, and PRs target `austinkennethtucker/ghostty` (origin) ONLY. The upstream remote has push disabled. When using `gh pr create`, always use `--repo austinkennethtucker/ghostty` or verify the target repo before submitting.**
+**CRITICAL: NEVER push to or create PRs against `ghostty-org/ghostty` (upstream). ALL pushes, branches, and PRs target `austinkennethtucker/Trident` (origin) ONLY. The upstream remote has push disabled. When using `gh pr create`, always use `--repo austinkennethtucker/Trident` or verify the target repo before submitting.**
 
 ## Fork Identity
 
 - **Display name:** Trident (internals still say Ghostty)
-- **Repo:** `austinkennethtucker/ghostty` (origin) — **all PRs go here**
+- **Repo:** `austinkennethtucker/Trident` (origin) — **all PRs go here**
 - **Upstream:** `ghostty-org/ghostty` (fetch-only, push disabled) — never PR to this
 - **Sync strategy:** Merge tagged releases only (`git merge v1.3.1`), not `upstream/main`
 - **Base release:** v1.3.1
@@ -100,7 +100,7 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
 - If code outside `macos/` is modified, run `zig build -Demit-macos-app=false` before building the macOS app to update the underlying Ghostty library.
 - Build the macOS app with `macos/build.nu`, **not** `zig build`:
   - `macos/build.nu [--scheme Ghostty] [--configuration Debug] [--action build]`
-  - Output: `macos/build/<configuration>/Ghostty.app`
+  - Output: `macos/build/<configuration>/Trident.app`
 - Run macOS unit tests: `macos/build.nu --action test`
 
 ## Popup Terminal (`src/apprt/popup.zig`)
@@ -118,6 +118,29 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
 - **CWD:** `cwd:~/projects` sets working directory at spawn. Without it, inherits from focused surface via OSC 7.
 - **Opacity:** `opacity:0.8` for per-popup background transparency, independent of global `background-opacity`.
 - User guide: `docs/popup-terminal.md`
+
+## Per-Pane Tabs
+
+- Each split pane can hold multiple terminal surfaces with independent tab switching
+- Tab bar auto-hides for single-tab panes; appears for 2+ tabs
+- Config: `pane-tab-bar-position` (`top`, `bottom`, `hidden`)
+- GTK: `src/apprt/gtk/class/split_tree.zig` tracks tab groups in a `pane_tab_groups` HashMap (keyed by active surface); tree leaves remain `*Surface`
+- GTK tab bar UI: `src/apprt/gtk/class/pane_tab_bar.zig`
+- macOS: `macos/Sources/Features/Splits/PaneTabBar.swift` (tab bar UI), `SplitTree.swift` uses `TabGroup` leaf nodes
+- Actions: `new_pane_tab`, `close_pane_tab`, `goto_pane_tab_prev`, `goto_pane_tab_next`, `goto_pane_tab:<index>`
+- Action dispatch: `Ghostty.App.swift` → NotificationCenter → `BaseTerminalController` pane tab handlers
+
+## Internal Tab Mode (`macos-tab-mode`)
+
+- Config: `macos-tab-mode = native` (default) or `internal`
+- When `internal`, tabs are managed within a single window instead of using native macOS window tabbing (each native "tab" is a separate `NSWindow`)
+- Solves AeroSpace / tiling WM compatibility — tiling WMs see one window, not one per tab
+- `InternalTabManager` (`macos/Sources/Features/Terminal/InternalTabManager.swift`): manages array of tab models, each with its own `SplitTree`
+- `InternalTabBarView` (`macos/Sources/Features/Terminal/InternalTabBarView.swift`): custom SwiftUI tab bar
+- `BaseTerminalController`: owns `internalTabManager?`, syncs `surfaceTree` with active tab on switch
+- `TerminalController`: routes all tab actions (new/close/goto/move/close-others/close-right) through internal tabs when active
+- `TerminalWindow`: sets `tabbingMode = .disallowed` when internal mode active
+- Internal tabs and per-pane tabs are orthogonal — internal tabs operate at window level, pane tabs at split-pane level
 
 ## Vi Mode (`src/ViMode.zig`)
 
@@ -166,6 +189,8 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
 - **GTK code doesn't compile on macOS:** GTK apprt is behind platform conditionals. Always verify with the Linux CI runner, not just local macOS builds.
 - **`std.fmt.allocPrintZ` doesn't exist:** Use `std.fmt.allocPrintSentinel(alloc, fmt, args, 0)` for null-terminated formatted strings.
 - **Popup action dispatch:** In the GTK `performAction` switch, popup actions use `value.name` (from the `value` parameter), not `|v|` capture syntax (it's a comptime switch).
+- **SplitTree leaf nodes are TabGroups:** `.leaf(view: ViewType)` was replaced by `.leaf(TabGroup)`. All pattern matches like `case .leaf(let surface)` must now be `case .leaf(let group)` and access `group.activeView` for the visible surface.
+- **SurfaceView has no `close()` method:** Don't call `surface.close()`. Surfaces are cleaned up when their split tree references are released (ARC deallocation).
 
 ## Agent Commands (`.agents/commands/`)
 

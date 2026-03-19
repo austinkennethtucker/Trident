@@ -682,6 +682,7 @@ pub const Application = extern struct {
         value: apprt.Action.Value(action),
     ) !bool {
         switch (action) {
+            .close_pane_tab => return Action.closePaneTab(target),
             .close_tab => return Action.closeTab(target, value),
             .close_window => return Action.closeWindow(target),
 
@@ -697,6 +698,9 @@ pub const Application = extern struct {
 
             .equalize_splits => return Action.equalizeSplits(target),
 
+            .goto_pane_tab_prev => return Action.gotoPaneTabPrev(target),
+            .goto_pane_tab_next => return Action.gotoPaneTabNext(target),
+            .goto_pane_tab => return Action.gotoPaneTab(target, value),
             .goto_split => return Action.gotoSplit(target, value),
 
             .goto_window => return Action.gotoWindow(value),
@@ -716,6 +720,7 @@ pub const Application = extern struct {
 
             .move_tab => return Action.moveTab(target, value),
 
+            .new_pane_tab => return Action.newPaneTab(target),
             .new_split => return Action.newSplit(target, value),
 
             .new_tab => return Action.newTab(target),
@@ -2016,6 +2021,21 @@ const Action = struct {
         }
     }
 
+    pub fn closePaneTab(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse return false;
+                tree.closePaneTab(surface);
+                return true;
+            },
+        }
+    }
+
     pub fn gotoSplit(
         target: apprt.Target,
         to: apprt.action.GotoSplit,
@@ -2044,6 +2064,54 @@ const Action = struct {
                     .left => .{ .spatial = .left },
                     .right => .{ .spatial = .right },
                 });
+            },
+        }
+    }
+
+    pub fn gotoPaneTabPrev(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse return false;
+                tree.gotoPaneTabRelative(surface, -1) catch return false;
+                return true;
+            },
+        }
+    }
+
+    pub fn gotoPaneTabNext(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse return false;
+                tree.gotoPaneTabRelative(surface, 1) catch return false;
+                return true;
+            },
+        }
+    }
+
+    pub fn gotoPaneTab(
+        target: apprt.Target,
+        value: apprt.action.GotoPaneTab,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse return false;
+                tree.gotoPaneTab(surface, value.index) catch return false;
+                return true;
             },
         }
     }
@@ -2231,6 +2299,21 @@ const Action = struct {
                     "&s",
                     @tagName(direction).ptr,
                 ) != 0;
+            },
+        }
+    }
+
+    pub fn newPaneTab(target: apprt.Target) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse return false;
+                tree.newPaneTab(surface) catch return false;
+                return true;
             },
         }
     }

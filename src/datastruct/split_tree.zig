@@ -164,6 +164,32 @@ pub fn SplitTree(comptime V: type) type {
             };
         }
 
+        /// Replace the view stored at a leaf handle.
+        pub fn replaceLeaf(
+            self: *const Self,
+            gpa: Allocator,
+            at: Node.Handle,
+            new_view: *View,
+        ) Allocator.Error!Self {
+            if (self.isEmpty()) return .empty;
+
+            var arena = ArenaAllocator.init(gpa);
+            errdefer arena.deinit();
+            const alloc = arena.allocator();
+
+            const nodes = try alloc.dupe(Node, self.nodes);
+            assert(nodes[at.idx()] == .leaf);
+            nodes[at.idx()] = .{ .leaf = new_view };
+
+            try refNodes(gpa, nodes);
+
+            return .{
+                .arena = arena,
+                .nodes = nodes,
+                .zoomed = self.zoomed,
+            };
+        }
+
         /// Returns true if this is an empty tree.
         pub fn isEmpty(self: *const Self) bool {
             // An empty tree has no nodes.

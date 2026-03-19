@@ -15,10 +15,69 @@ const Common = @import("../class.zig").Common;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
+const PaneTabBar = @import("pane_tab_bar.zig").PaneTabBar;
 const Surface = @import("surface.zig").Surface;
 const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
+
+const PaneTabState = struct {
+    tabs: std.ArrayListUnmanaged(*Surface) = .empty,
+    active_index: usize = 0,
+    alloc: Allocator,
+
+    fn init(alloc: Allocator, surface: *Surface) !*PaneTabState {
+        const self = try alloc.create(PaneTabState);
+        errdefer alloc.destroy(self);
+
+        self.* = .{
+            .tabs = .empty,
+            .active_index = 0,
+            .alloc = alloc,
+        };
+        try self.tabs.append(alloc, surface.ref());
+        return self;
+    }
+
+    fn deinit(self: *PaneTabState) void {
+        for (self.tabs.items) |surface| surface.unref();
+        self.tabs.deinit(self.alloc);
+        self.alloc.destroy(self);
+    }
+
+    fn addTab(self: *PaneTabState, surface: *Surface) !void {
+        const insert_pos = self.active_index + 1;
+        try self.tabs.insert(self.alloc, insert_pos, surface.ref());
+        self.active_index = insert_pos;
+    }
+
+    fn removeTab(self: *PaneTabState, index: usize) ?*Surface {
+        if (index >= self.tabs.items.len) return null;
+        const removed = self.tabs.orderedRemove(index);
+
+        if (self.tabs.items.len == 0) {
+            self.active_index = 0;
+            return removed;
+        }
+
+        if (self.active_index >= self.tabs.items.len) {
+            self.active_index = self.tabs.items.len - 1;
+        } else if (index < self.active_index) {
+            self.active_index -= 1;
+        }
+
+        return removed;
+    }
+
+    fn setActive(self: *PaneTabState, index: usize) void {
+        if (index >= self.tabs.items.len) return;
+        self.active_index = index;
+    }
+
+    fn activeTab(self: *const PaneTabState) *Surface {
+        return self.tabs.items[self.active_index];
+    }
+};
 
 pub const SplitTree = extern struct {
     const Self = @This();
@@ -161,6 +220,14 @@ pub const SplitTree = extern struct {
         /// Used to store state about a pending surface close for the
         /// close dialog.
         pending_close: ?Surface.Tree.Node.Handle,
+
+        /// Used to store state about a pending pane tab close for the
+        /// close dialog. Separate from pending_close because pane tab
+        /// closes route through closePaneTab, not closeSurfaceHandle.
+        pending_pane_tab_close: ?*Surface = null,
+
+        /// Pane tab groups keyed by the active surface in the tree.
+        pane_tab_groups: std.AutoHashMapUnmanaged(*Surface, *PaneTabState) = .empty,
 
         pub var offset: c_int = 0;
     };
@@ -383,6 +450,250 @@ pub const SplitTree = extern struct {
         return true;
     }
 
+    pub fn newPaneTab(self: *Self, parent: *Surface) Allocator.Error!void {
+        const alloc = Application.default().allocator();
+        const info = self.findPaneTabInfo(parent) orelse return;
+
+        const surface: *Surface = .new(.{});
+        defer surface.unref();
+        _ = surface.refSink();
+
+        if (parent.core()) |core| {
+            surface.setParent(core, .split);
+        }
+
+        _ = self.as(gobject.Object).bindProperty(
+            "is-split",
+            surface.as(gobject.Object),
+            "is-split",
+            .{ .sync_create = true },
+        );
+
+        const state = if (info.state) |existing| existing else blk: {
+            const created = try PaneTabState.init(alloc, info.active_surface);
+            errdefer created.deinit();
+            try created.addTab(surface);
+            try self.private().pane_tab_groups.put(alloc, info.active_surface, created);
+            break :blk created;
+        };
+
+        if (info.state != null) {
+            try state.addTab(surface);
+        }
+        try self.swapPaneTabActive(info.handle, info.active_surface, state.activeTab());
+    }
+
+    pub fn closePaneTab(self: *Self, surface: *Surface) void {
+        // Check if we need quit confirmation before closing.
+        if (surface.core()) |core| {
+            if (core.needsConfirmQuit()) {
+                const priv = self.private();
+                priv.pending_pane_tab_close = surface;
+                const dialog: *CloseConfirmationDialog = .new(.surface);
+                _ = CloseConfirmationDialog.signals.@"close-request".connect(
+                    dialog,
+                    *Self,
+                    closePaneTabConfirmationClose,
+                    self,
+                    .{},
+                );
+                dialog.present(self.as(gtk.Widget));
+                return;
+            }
+        }
+        self.closePaneTabForce(surface);
+    }
+
+    fn closePaneTabConfirmationClose(
+        _: ?*CloseConfirmationDialog,
+        self: *Self,
+    ) callconv(.c) void {
+        const priv = self.private();
+        const surface = priv.pending_pane_tab_close orelse return;
+        priv.pending_pane_tab_close = null;
+        self.closePaneTabForce(surface);
+    }
+
+    fn closePaneTabForce(self: *Self, surface: *Surface) void {
+        const info = self.findPaneTabInfo(surface) orelse return;
+        const state = info.state orelse {
+            self.closeSurfaceHandle(info.handle);
+            return;
+        };
+        const index = info.index orelse return;
+        const was_active = index == state.active_index;
+        const removed = state.removeTab(index) orelse return;
+        defer removed.unref();
+
+        if (state.tabs.items.len == 0) {
+            _ = self.private().pane_tab_groups.remove(info.active_surface);
+            state.deinit();
+            self.closeSurfaceHandle(info.handle);
+            return;
+        }
+
+        if (state.tabs.items.len == 1) {
+            const remaining = state.activeTab();
+            _ = self.private().pane_tab_groups.remove(info.active_surface);
+            self.swapLeaf(info.handle, info.active_surface, remaining) catch |err| {
+                log.warn("unable to swap leaf for pane tab close: {}", .{err});
+                return;
+            };
+            state.deinit();
+            return;
+        }
+
+        const next_active = if (was_active) state.activeTab() else info.active_surface;
+        self.swapPaneTabActive(info.handle, info.active_surface, next_active) catch |err| {
+            log.warn("unable to swap pane tab active: {}", .{err});
+        };
+    }
+
+    pub fn gotoPaneTabRelative(
+        self: *Self,
+        surface: *Surface,
+        delta: isize,
+    ) Allocator.Error!void {
+        const info = self.findPaneTabInfo(surface) orelse return;
+        const state = info.state orelse return;
+        if (state.tabs.items.len <= 1) return;
+
+        const count: isize = @intCast(state.tabs.items.len);
+        const current: isize = @intCast(state.active_index);
+        const next: usize = @intCast(@mod(current + delta, count));
+        state.setActive(next);
+        try self.swapPaneTabActive(info.handle, info.active_surface, state.activeTab());
+    }
+
+    pub fn gotoPaneTab(self: *Self, surface: *Surface, index: u16) Allocator.Error!void {
+        const info = self.findPaneTabInfo(surface) orelse return;
+        const state = info.state orelse return;
+        const index_usize: usize = index;
+        if (index_usize >= state.tabs.items.len) return;
+
+        state.setActive(index_usize);
+        try self.swapPaneTabActive(info.handle, info.active_surface, state.activeTab());
+    }
+
+    fn closePaneTabAtIndex(
+        self: *Self,
+        active_surface: *Surface,
+        index: usize,
+    ) void {
+        const info = self.findPaneTabInfo(active_surface) orelse return;
+        const state = info.state orelse return;
+        if (index >= state.tabs.items.len) return;
+        self.closePaneTab(state.tabs.items[index]);
+    }
+
+    const PaneTabInfo = struct {
+        active_surface: *Surface,
+        handle: Surface.Tree.Node.Handle,
+        state: ?*PaneTabState,
+        index: ?usize,
+    };
+
+    fn findPaneTabInfo(self: *Self, surface: *Surface) ?PaneTabInfo {
+        const priv = self.private();
+        var it = priv.pane_tab_groups.iterator();
+        while (it.next()) |entry| {
+            const active_surface = entry.key_ptr.*;
+            const handle = self.findSurfaceHandle(active_surface) orelse continue;
+            const state = entry.value_ptr.*;
+            for (state.tabs.items, 0..) |tab, index| {
+                if (tab == surface) {
+                    return .{
+                        .active_surface = active_surface,
+                        .handle = handle,
+                        .state = state,
+                        .index = index,
+                    };
+                }
+            }
+        }
+
+        const handle = self.findSurfaceHandle(surface) orelse return null;
+        return .{
+            .active_surface = surface,
+            .handle = handle,
+            .state = null,
+            .index = null,
+        };
+    }
+
+    fn findSurfaceHandle(self: *Self, surface: *Surface) ?Surface.Tree.Node.Handle {
+        const tree = self.getTree() orelse return null;
+        var it = tree.iterator();
+        while (it.next()) |entry| {
+            if (entry.view == surface) return entry.handle;
+        }
+        return null;
+    }
+
+    fn swapPaneTabActive(
+        self: *Self,
+        handle: Surface.Tree.Node.Handle,
+        old_active: *Surface,
+        new_active: *Surface,
+    ) Allocator.Error!void {
+        if (old_active != new_active) {
+            const state = self.private().pane_tab_groups.getPtr(old_active) orelse return;
+            const state_ptr = state.*;
+            _ = self.private().pane_tab_groups.remove(old_active);
+            try self.private().pane_tab_groups.put(
+                Application.default().allocator(),
+                new_active,
+                state_ptr,
+            );
+        }
+
+        try self.swapLeaf(handle, old_active, new_active);
+    }
+
+    fn swapLeaf(
+        self: *Self,
+        handle: Surface.Tree.Node.Handle,
+        old_surface: *Surface,
+        new_surface: *Surface,
+    ) Allocator.Error!void {
+        _ = old_surface;
+        const tree = self.getTree() orelse return;
+        var new_tree = try tree.replaceLeaf(
+            Application.default().allocator(),
+            handle,
+            new_surface,
+        );
+        defer new_tree.deinit();
+
+        self.private().last_focused.set(new_surface);
+        self.setTree(&new_tree);
+    }
+
+    fn closeSurfaceHandle(self: *Self, handle: Surface.Tree.Node.Handle) void {
+        const priv = self.private();
+        const old_tree = self.getTree() orelse return;
+        const next_focus: ?*Surface = next_focus: {
+            const alloc = Application.default().allocator();
+            const next_handle: Surface.Tree.Node.Handle =
+                (old_tree.goto(alloc, handle, .previous) catch null) orelse
+                (old_tree.goto(alloc, handle, .next) catch null) orelse
+                break :next_focus null;
+            if (next_handle == handle) break :next_focus null;
+            break :next_focus old_tree.nodes[next_handle.idx()].leaf;
+        };
+
+        var new_tree = old_tree.remove(
+            Application.default().allocator(),
+            handle,
+        ) catch |err| {
+            log.warn("unable to remove surface from tree: {}", .{err});
+            return;
+        };
+        defer new_tree.deinit();
+        self.setTree(&new_tree);
+        if (next_focus) |v| priv.last_focused.set(v);
+    }
+
     fn disconnectSurfaceHandlers(self: *Self) void {
         const tree = self.getTree() orelse return;
         var it = tree.iterator();
@@ -397,6 +708,22 @@ pub const SplitTree = extern struct {
                 null,
                 self,
             );
+        }
+
+        var groups = self.private().pane_tab_groups.iterator();
+        while (groups.next()) |entry| {
+            for (entry.value_ptr.*.tabs.items) |surface| {
+                if (treeContainsSurface(tree, surface)) continue;
+                _ = gobject.signalHandlersDisconnectMatched(
+                    surface.as(gobject.Object),
+                    .{ .data = true },
+                    0,
+                    0,
+                    null,
+                    null,
+                    self,
+                );
+            }
         }
     }
 
@@ -420,6 +747,27 @@ pub const SplitTree = extern struct {
                 .{ .detail = "focused" },
             );
         }
+
+        var groups = self.private().pane_tab_groups.iterator();
+        while (groups.next()) |entry| {
+            for (entry.value_ptr.*.tabs.items) |surface| {
+                if (treeContainsSurface(tree, surface)) continue;
+                _ = Surface.signals.@"close-request".connect(
+                    surface,
+                    *Self,
+                    surfaceCloseRequest,
+                    self,
+                    .{},
+                );
+                _ = gobject.Object.signals.notify.connect(
+                    surface,
+                    *Self,
+                    propSurfaceFocused,
+                    self,
+                    .{ .detail = "focused" },
+                );
+            }
+        }
     }
 
     //---------------------------------------------------------------
@@ -434,6 +782,18 @@ pub const SplitTree = extern struct {
             if (entry.view.core()) |core| {
                 if (core.needsConfirmQuit()) {
                     return true;
+                }
+            }
+        }
+
+        var groups = self.private().pane_tab_groups.iterator();
+        while (groups.next()) |entry| {
+            for (entry.value_ptr.*.tabs.items) |surface| {
+                if (treeContainsSurface(tree, surface)) continue;
+                if (surface.core()) |core| {
+                    if (core.needsConfirmQuit()) {
+                        return true;
+                    }
                 }
             }
         }
@@ -534,6 +894,8 @@ pub const SplitTree = extern struct {
             self.connectSurfaceHandlers();
         }
 
+        self.prunePaneTabGroups();
+
         self.as(gobject.Object).notifyByPspec(properties.tree.impl.param_spec);
     }
 
@@ -593,6 +955,10 @@ pub const SplitTree = extern struct {
             ext.boxedFree(Surface.Tree, tree);
             priv.tree = null;
         }
+
+        var groups = priv.pane_tab_groups.iterator();
+        while (groups.next()) |entry| entry.value_ptr.*.deinit();
+        priv.pane_tab_groups.deinit(Application.default().allocator());
 
         gobject.Object.virtual_methods.finalize.call(
             Class.parent,
@@ -677,9 +1043,10 @@ pub const SplitTree = extern struct {
         const priv = self.private();
         priv.pending_close = null;
 
-        // Find the surface in the tree to verify this is valid and
-        // set our pending close handle.
-        priv.pending_close = handle: {
+        // Find the surface in the tree. If not found, it may be a
+        // dormant pane tab (not visible in the tree). Route through
+        // closePaneTab which handles confirmation itself.
+        const handle: Surface.Tree.Node.Handle = handle: {
             const tree = self.getTree() orelse return;
             var it = tree.iterator();
             while (it.next()) |entry| {
@@ -688,8 +1055,21 @@ pub const SplitTree = extern struct {
                 }
             }
 
+            // Surface not in tree — it's a dormant pane tab.
+            self.closePaneTab(surface);
             return;
         };
+
+        // Check if this surface is the active tab in a pane tab group.
+        // If so, route through closePaneTab which handles confirmation
+        // and preserves sibling tabs.
+        if (priv.pane_tab_groups.contains(surface)) {
+            self.closePaneTab(surface);
+            return;
+        }
+
+        // Regular surface (not part of a pane tab group).
+        priv.pending_close = handle;
 
         // If we don't need to confirm then just close immediately.
         if (!core.needsConfirmQuit()) {
@@ -721,38 +1101,7 @@ pub const SplitTree = extern struct {
         const handle = priv.pending_close orelse return;
         priv.pending_close = null;
 
-        // Figure out our next focus target. The next focus target is
-        // always the "previous" surface unless we're the leftmost then
-        // its the next.
-        const old_tree = self.getTree() orelse return;
-        const next_focus: ?*Surface = next_focus: {
-            const alloc = Application.default().allocator();
-            const next_handle: Surface.Tree.Node.Handle =
-                (old_tree.goto(alloc, handle, .previous) catch null) orelse
-                (old_tree.goto(alloc, handle, .next) catch null) orelse
-                break :next_focus null;
-            if (next_handle == handle) break :next_focus null;
-
-            // Note: we don't need to ref this or anything because its
-            // guaranteed to remain in the new tree since its not part
-            // of the handle we're removing.
-            break :next_focus old_tree.nodes[next_handle.idx()].leaf;
-        };
-
-        // Remove it from the tree.
-        var new_tree = old_tree.remove(
-            Application.default().allocator(),
-            handle,
-        ) catch |err| {
-            log.warn("unable to remove surface from tree: {}", .{err});
-            return;
-        };
-        defer new_tree.deinit();
-        self.setTree(&new_tree);
-
-        // Grab focus. We have to set this on the "last focused" because our
-        // focus will be set when the tree is redrawn.
-        if (next_focus) |v| priv.last_focused.set(v);
+        self.closeSurfaceHandle(handle);
     }
 
     fn propSurfaceFocused(
@@ -846,6 +1195,34 @@ pub const SplitTree = extern struct {
         return 0;
     }
 
+    fn prunePaneTabGroups(self: *Self) void {
+        const alloc = Application.default().allocator();
+        const tree = self.getTree();
+        var removals: std.ArrayListUnmanaged(*Surface) = .empty;
+        defer removals.deinit(alloc);
+
+        var it = self.private().pane_tab_groups.iterator();
+        while (it.next()) |entry| {
+            if (tree == null or !treeContainsSurface(tree.?, entry.key_ptr.*)) {
+                removals.append(alloc, entry.key_ptr.*) catch return;
+            }
+        }
+
+        for (removals.items) |key| {
+            if (self.private().pane_tab_groups.fetchRemove(key)) |removed| {
+                removed.value.deinit();
+            }
+        }
+    }
+
+    fn treeContainsSurface(tree: *const Surface.Tree, surface: *Surface) bool {
+        var it = tree.iterator();
+        while (it.next()) |entry| {
+            if (entry.view == surface) return true;
+        }
+        return false;
+    }
+
     /// Builds the widget tree associated with a surface split tree.
     ///
     /// Returned widgets are expected to be attached to a parent by the caller.
@@ -894,15 +1271,21 @@ pub const SplitTree = extern struct {
                 ) orelse {
                     // The surface isn't in a window already so we don't
                     // have to worry about reuse.
-                    break :leaf .initNew(gobject.ext.newInstance(
-                        SurfaceScrolledWindow,
-                        .{ .surface = v },
-                    ).as(gtk.Widget));
+                    break :leaf self.wrapLeaf(
+                        v,
+                        .initNew(gobject.ext.newInstance(
+                            SurfaceScrolledWindow,
+                            .{ .surface = v },
+                        ).as(gtk.Widget)),
+                    );
                 };
 
                 // Keep this widget alive while we detach it from the
                 // old tree and adopt it into the new one.
-                break :leaf .initReused(window.as(gtk.Widget));
+                break :leaf self.wrapLeaf(
+                    v,
+                    .initReused(window.as(gtk.Widget)),
+                );
             },
             .split => |s| split: {
                 const left = self.buildTree(tree, s.left);
@@ -917,6 +1300,90 @@ pub const SplitTree = extern struct {
                     right.widget,
                 ).as(gtk.Widget));
             },
+        };
+    }
+
+    fn wrapLeaf(self: *Self, surface: *Surface, surface_widget: BuildTreeResult) BuildTreeResult {
+        const state = self.private().pane_tab_groups.get(surface) orelse return surface_widget;
+        if (state.tabs.items.len < 2) return surface_widget;
+
+        const position = self.getPaneTabBarPosition();
+        if (position == .hidden) return surface_widget;
+
+        defer surface_widget.deinit();
+
+        const container = gtk.Box.new(.vertical, 0);
+        const bar = PaneTabBar.new();
+        bar.setTabs(state.tabs.items, state.active_index);
+
+        _ = PaneTabBar.signals.@"tab-selected".connect(
+            bar,
+            *Self,
+            paneTabBarSelected,
+            self,
+            .{},
+        );
+        _ = PaneTabBar.signals.@"tab-closed".connect(
+            bar,
+            *Self,
+            paneTabBarClosed,
+            self,
+            .{},
+        );
+        _ = PaneTabBar.signals.@"new-tab-requested".connect(
+            bar,
+            *Self,
+            paneTabBarNewRequested,
+            self,
+            .{},
+        );
+
+        if (position == .top) {
+            container.append(bar.as(gtk.Widget));
+            container.append(surface_widget.widget);
+        } else {
+            container.append(surface_widget.widget);
+            container.append(bar.as(gtk.Widget));
+        }
+
+        return .initNew(container.as(gtk.Widget));
+    }
+
+    fn getPaneTabBarPosition(self: *Self) configpkg.PaneTabBarPosition {
+        _ = self;
+        const app = Application.default();
+        const config_obj = app.getConfig();
+        defer config_obj.unref();
+        return config_obj.get().@"pane-tab-bar-position";
+    }
+
+    fn paneTabBarSelected(
+        bar: *PaneTabBar,
+        index: u32,
+        self: *Self,
+    ) callconv(.c) void {
+        const surface = bar.getActiveSurface() orelse return;
+        self.gotoPaneTab(surface, @intCast(index)) catch |err| {
+            log.warn("unable to select pane tab: {}", .{err});
+        };
+    }
+
+    fn paneTabBarClosed(
+        bar: *PaneTabBar,
+        index: u32,
+        self: *Self,
+    ) callconv(.c) void {
+        const surface = bar.getActiveSurface() orelse return;
+        self.closePaneTabAtIndex(surface, @intCast(index));
+    }
+
+    fn paneTabBarNewRequested(
+        bar: *PaneTabBar,
+        self: *Self,
+    ) callconv(.c) void {
+        const surface = bar.getActiveSurface() orelse return;
+        self.newPaneTab(surface) catch |err| {
+            log.warn("unable to create pane tab: {}", .{err});
         };
     }
 
@@ -955,6 +1422,11 @@ pub const SplitTree = extern struct {
                     return;
                 }
             }
+        }
+
+        if (gobject.ext.cast(gtk.Box, parent)) |box| {
+            box.remove(widget);
+            return;
         }
 
         // Fallback for unexpected parents where we don't have a typed
