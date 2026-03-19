@@ -14,10 +14,13 @@ class BrowserSocketServer {
 
     init(paneId: UUID) {
         self.paneId = paneId
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("trident", isDirectory: true)
+        // Use /tmp/trident/ instead of $TMPDIR — macOS $TMPDIR paths are
+        // too long (60+ chars) and Unix socket paths are limited to 104 bytes.
+        let tmpDir = URL(fileURLWithPath: "/tmp/trident", isDirectory: true)
         try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        self.socketPath = tmpDir.appendingPathComponent("browser-\(paneId.uuidString).sock").path
+        // Use first 8 chars of UUID to keep path short
+        let shortId = String(paneId.uuidString.prefix(8)).lowercased()
+        self.socketPath = tmpDir.appendingPathComponent("b-\(shortId).sock").path
     }
 
     deinit {
@@ -169,13 +172,12 @@ class BrowserSocketServer {
                 continue
             }
 
-            // Dispatch to main thread for WKWebView access
-            DispatchQueue.main.async { [weak self] in
+            // Handle command on socket queue — individual methods
+            // dispatch to main thread as needed
+            self.queue.async { [weak self] in
                 guard let self = self else { return }
                 let response = self.handleCommand(command)
-                self.queue.async {
-                    self.sendResponse(response, to: fd)
-                }
+                self.sendResponse(response, to: fd)
             }
         }
     }
@@ -203,28 +205,55 @@ class BrowserSocketServer {
             guard let url = command["url"] as? String else {
                 return ["ok": false, "error": "missing 'url' parameter"]
             }
-            model?.navigate(to: url)
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.model?.navigate(to: url)
+                sem.signal()
+            }
+            sem.wait()
             return ["ok": true]
 
         case "back":
-            model?.goBack()
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.model?.goBack()
+                sem.signal()
+            }
+            sem.wait()
             return ["ok": true]
 
         case "forward":
-            model?.goForward()
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.model?.goForward()
+                sem.signal()
+            }
+            sem.wait()
             return ["ok": true]
 
         case "reload":
-            model?.reload()
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.model?.reload()
+                sem.signal()
+            }
+            sem.wait()
             return ["ok": true]
 
         case "status":
-            return [
-                "ok": true,
-                "url": model?.urlString as Any,
-                "title": model?.pageTitle as Any,
-                "loading": model?.isLoading as Any,
-            ]
+            var result: [String: Any] = [:]
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                result = [
+                    "ok": true,
+                    "url": self?.model?.urlString as Any,
+                    "title": self?.model?.pageTitle as Any,
+                    "loading": self?.model?.isLoading as Any,
+                ]
+                sem.signal()
+            }
+            sem.wait()
+            return result
 
         case "js_eval":
             guard let code = command["code"] as? String else {

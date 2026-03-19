@@ -37,8 +37,13 @@ class BrowserPaneModel: NSObject, ObservableObject {
 
         let server = BrowserSocketServer(paneId: id)
         server.model = self
-        try? server.start()
-        self.socketServer = server
+        do {
+            try server.start()
+            self.socketServer = server
+            print("[BrowserPane] Socket server started at: \(server.socketPath)")
+        } catch {
+            print("[BrowserPane] Socket server failed to start: \(error)")
+        }
     }
 
     deinit {
