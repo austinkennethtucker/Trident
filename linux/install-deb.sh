@@ -33,6 +33,15 @@ if [ -z "$DEB" ]; then
     exit 1
 fi
 
+# Check for conflicting snap Ghostty installation
+if command -v snap >/dev/null 2>&1 && snap list ghostty >/dev/null 2>&1; then
+    echo "WARNING: Snap package 'ghostty' is installed (upstream Ghostty)."
+    echo "  The snap binary at /snap/bin/ghostty may shadow Trident and lacks"
+    echo "  Trident-specific features (pane tabs, popups, vi mode, etc.)."
+    echo "  Remove it with: sudo snap remove ghostty"
+    echo ""
+fi
+
 echo "==> Installing $(basename "$DEB")..."
 dpkg -i "$DEB" || apt-get install -f -y
 
