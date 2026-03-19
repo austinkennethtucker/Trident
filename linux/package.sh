@@ -44,6 +44,8 @@ echo "==> Version: ${VERSION}, Arch: ${ARCH} (nfpm: ${NFPM_ARCH})"
 
 # --- Build into staging prefix ---
 if [ "$SKIP_BUILD" = false ]; then
+    echo "==> Cleaning build cache..."
+    rm -rf "$REPO_ROOT/.zig-cache"
     echo "==> Building Trident (ReleaseFast) into staging..."
     rm -rf "$STAGING"
     zig build \
