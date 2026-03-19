@@ -691,6 +691,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_GOTO_PANE_TAB:
                 gotoPaneTab(app, target: target, v: action.action.goto_pane_tab)
 
+            case GHOSTTY_ACTION_TOGGLE_BROWSER:
+                toggleBrowser(app, target: target)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue)")
                 return false
@@ -1430,6 +1433,27 @@ extension Ghostty {
                     name: Notification.didControlInspector,
                     object: surfaceView,
                     userInfo: ["mode": mode]
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func toggleBrowser(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("toggle browser does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: Notification.didToggleBrowser,
+                    object: surfaceView
                 )
 
             default:

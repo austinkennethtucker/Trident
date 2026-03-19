@@ -423,6 +423,9 @@ extension Ghostty.Notification {
     /// Notification to show/hide the inspector
     static let didControlInspector = Notification.Name("com.mitchellh.ghostty.didControlInspector")
 
+    /// Notification to toggle the browser pane
+    static let didToggleBrowser = Notification.Name("com.mitchellh.ghostty.didToggleBrowser")
+
     static let confirmClipboard = Notification.Name("com.mitchellh.ghostty.confirmClipboard")
     static let ConfirmClipboardStrKey = confirmClipboard.rawValue + ".str"
     static let ConfirmClipboardStateKey = confirmClipboard.rawValue + ".state"
