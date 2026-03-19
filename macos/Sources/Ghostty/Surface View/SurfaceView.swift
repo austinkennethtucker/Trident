@@ -1212,6 +1212,25 @@ extension Ghostty {
     #endif
 }
 
+// MARK: Pane Neighbors
+
+/// Indicates which edges of a pane border other panes (internal edges).
+/// Used by FocusedSplitBorderOverlay to place arrow markers.
+struct PaneNeighbors: OptionSet {
+    let rawValue: Int
+
+    static let hasTop    = PaneNeighbors(rawValue: 1 << 0)
+    static let hasBottom = PaneNeighbors(rawValue: 1 << 1)
+    static let hasLeft   = PaneNeighbors(rawValue: 1 << 2)
+    static let hasRight  = PaneNeighbors(rawValue: 1 << 3)
+
+    static let none: PaneNeighbors = []
+}
+
+private struct PaneNeighborsKey: EnvironmentKey {
+    static let defaultValue: PaneNeighbors = .none
+}
+
 // MARK: Surface Environment Keys
 
 private struct GhosttySurfaceViewKey: EnvironmentKey {
@@ -1225,6 +1244,11 @@ private struct GhosttyLastFocusedSurfaceKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    var paneNeighbors: PaneNeighbors {
+        get { self[PaneNeighborsKey.self] }
+        set { self[PaneNeighborsKey.self] = newValue }
+    }
+
     var ghosttySurfaceView: Ghostty.SurfaceView? {
         get { self[GhosttySurfaceViewKey.self] }
         set { self[GhosttySurfaceViewKey.self] = newValue }
@@ -1237,6 +1261,10 @@ extension EnvironmentValues {
 }
 
 extension View {
+    func paneNeighbors(_ neighbors: PaneNeighbors) -> some View {
+        environment(\.paneNeighbors, neighbors)
+    }
+
     func ghosttySurfaceView(_ surfaceView: Ghostty.SurfaceView?) -> some View {
         environment(\.ghosttySurfaceView, surfaceView)
     }
