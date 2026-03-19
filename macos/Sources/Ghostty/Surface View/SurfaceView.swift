@@ -57,6 +57,7 @@ extension Ghostty {
 
         @EnvironmentObject private var ghostty: Ghostty.App
         @Environment(\.ghosttyLastFocusedSurface) private var lastFocusedSurface
+        @Environment(\.paneNeighbors) private var paneNeighbors
 
         private var isFocusedSurface: Bool {
             surfaceFocus || lastFocusedSurface?.value === surfaceView
@@ -211,6 +212,16 @@ extension Ghostty {
 
                 // Show a highlight effect when this surface needs attention
                 HighlightOverlay(highlighted: surfaceView.highlighted)
+
+                // Show focused split border if enabled and this is the focused pane in a split.
+                // Uses windowFocus so the border hides when the window is inactive.
+                if isSplit && ghostty.config.focusedSplitBorder {
+                    FocusedSplitBorderOverlay(
+                        focused: isFocusedSurface && windowFocus,
+                        color: ghostty.config.focusedSplitBorderColor,
+                        neighbors: paneNeighbors
+                    )
+                }
 
                 // If our surface is not healthy, then we render an error view over it.
                 if !surfaceView.healthy {
