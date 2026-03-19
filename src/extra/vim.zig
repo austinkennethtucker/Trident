@@ -5,8 +5,8 @@ const Config = @import("../config/Config.zig");
 pub const syntax = comptimeGenSyntax();
 pub const ftdetect =
     \\" Vim filetype detect file
-    \\" Language: Ghostty config file
-    \\" Maintainer: Ghostty <https://github.com/ghostty-org/ghostty>
+    \\" Language: Trident config file
+    \\" Maintainer: Trident <https://github.com/austinkennethtucker/Trident>
     \\"
     \\" THIS FILE IS AUTO-GENERATED
     \\
@@ -15,8 +15,8 @@ pub const ftdetect =
 ;
 pub const ftplugin =
     \\" Vim filetype plugin file
-    \\" Language: Ghostty config file
-    \\" Maintainer: Ghostty <https://github.com/ghostty-org/ghostty>
+    \\" Language: Trident config file
+    \\" Maintainer: Trident <https://github.com/austinkennethtucker/Trident>
     \\"
     \\" THIS FILE IS AUTO-GENERATED
     \\
@@ -41,8 +41,8 @@ pub const ftplugin =
 ;
 pub const compiler =
     \\" Vim compiler file
-    \\" Language: Ghostty config file
-    \\" Maintainer: Ghostty <https://github.com/ghostty-org/ghostty>
+    \\" Language: Trident config file
+    \\" Maintainer: Trident <https://github.com/austinkennethtucker/Trident>
     \\"
     \\" THIS FILE IS AUTO-GENERATED
     \\
@@ -75,8 +75,8 @@ fn comptimeGenSyntax() []const u8 {
 fn writeSyntax(writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\" Vim syntax file
-        \\" Language: Ghostty config file
-        \\" Maintainer: Ghostty <https://github.com/ghostty-org/ghostty>
+        \\" Language: Trident config file
+        \\" Maintainer: Trident <https://github.com/austinkennethtucker/Trident>
         \\"
         \\" THIS FILE IS AUTO-GENERATED
         \\

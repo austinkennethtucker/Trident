@@ -17,10 +17,10 @@ pub fn genActions(writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\---
         \\title: Reference
-        \\description: Reference of all Ghostty action subcommands.
+        \\description: Reference of all Trident action subcommands.
         \\editOnGithubLink: https://github.com/ghostty-org/ghostty/tree/main/src/cli
         \\---
-        \\Ghostty includes a number of utility actions that can be accessed as subcommands.
+        \\Trident includes a number of utility actions that can be accessed as subcommands.
         \\Actions provide utilities to work with config, list keybinds, list fonts, demo themes,
         \\and debug.
         \\
