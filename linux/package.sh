@@ -55,7 +55,7 @@ if [ "$SKIP_BUILD" = false ]; then
         -Dcpu=baseline \
         -Dpie=true \
         -Dstrip=true \
-        -Dsystem-gtk4-layer-shell=false \
+        -fno-sys=gtk4-layer-shell \
         --prefix "$STAGING/usr"
     echo "==> Build complete."
 fi
