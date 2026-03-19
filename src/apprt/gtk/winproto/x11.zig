@@ -17,6 +17,7 @@ pub const c = @cImport({
 });
 
 const input = @import("../../../input.zig");
+const popupmod = @import("../../popup.zig");
 const Config = @import("../../../config.zig").Config;
 const ApprtWindow = @import("../class/window.zig").Window;
 
@@ -159,11 +160,14 @@ pub const App = struct {
     }
 
     pub fn supportsPopup(_: App) bool {
-        log.warn("popup terminals are not yet supported on X11", .{});
-        return false;
+        return true;
     }
 
-    pub fn initPopup(_: *App, _: *ApprtWindow) !void {}
+    pub fn initPopup(_: *App, apprt_window: *ApprtWindow) !void {
+        // Remove window decorations for popup terminals.
+        // This must happen before the window is realized (before Window.init).
+        apprt_window.as(gtk.Window).setDecorated(0);
+    }
 };
 
 pub const Window = struct {
@@ -178,6 +182,7 @@ pub const Window = struct {
     // with some window managers: https://github.com/ghostty-org/ghostty/pull/8075
     last_applied_blur_region: ?Region = null,
     last_applied_decoration_hints: ?MotifWMHints = null,
+    popup_placement_warned: bool = false,
 
     pub fn init(
         alloc: Allocator,
@@ -193,6 +198,18 @@ pub const Window = struct {
             gdk_x11.X11Surface,
             surface,
         ) orelse return error.NotX11Surface;
+
+        // For popup/quick-terminal windows, update size and position
+        // when the window enters a new monitor.
+        if (apprt_window.isQuickTerminal()) {
+            _ = gdk.Surface.signals.enter_monitor.connect(
+                surface,
+                *ApprtWindow,
+                enteredMonitor,
+                apprt_window,
+                .{},
+            );
+        }
 
         return .{
             .app = app,
@@ -240,6 +257,12 @@ pub const Window = struct {
         self.syncDecorations() catch |err| {
             log.err("failed to synchronize decorations={}", .{err});
         };
+
+        if (self.apprt_window.isQuickTerminal()) {
+            self.syncPopup() catch |err| {
+                log.warn("failed to sync popup appearance={}", .{err});
+            };
+        }
     }
 
     pub fn clientSideDecorationEnabled(self: Window) bool {
@@ -339,6 +362,104 @@ pub const Window = struct {
             &hints,
         );
         self.last_applied_decoration_hints = hints;
+    }
+
+    fn syncPopup(self: *Window) !void {
+        const xid = self.x11_surface.getXid();
+        const display: *c.Display = @ptrCast(@alignCast(self.app.display));
+
+        // Set window type to dialog so WMs float it
+        var window_type = [1]c.Atom{self.app.atoms.net_wm_window_type_dialog};
+        _ = c.XChangeProperty(
+            display,
+            xid,
+            self.app.atoms.net_wm_window_type,
+            c.XA_ATOM,
+            32,
+            c.PropModeReplace,
+            @ptrCast(&window_type),
+            1,
+        );
+
+        // Set _NET_WM_STATE: above + skip_taskbar + skip_pager
+        var state_atoms = [3]c.Atom{
+            self.app.atoms.net_wm_state_above,
+            self.app.atoms.net_wm_state_skip_taskbar,
+            self.app.atoms.net_wm_state_skip_pager,
+        };
+        _ = c.XChangeProperty(
+            display,
+            xid,
+            self.app.atoms.net_wm_state,
+            c.XA_ATOM,
+            32,
+            c.PropModeReplace,
+            @ptrCast(&state_atoms),
+            3,
+        );
+
+        // Warn once about unsupported placement offsets (anchor, x, y)
+        if (self.apprt_window.isPopup() and !self.popup_placement_warned) {
+            const popup_anchor = self.apprt_window.popupAnchor();
+            const popup_x = self.apprt_window.popupX();
+            const popup_y = self.apprt_window.popupY();
+            if (popup_anchor != null or popup_x != null or popup_y != null) {
+                log.warn(
+                    "popup profile placement offsets and anchors are not yet fully supported on X11; using position only",
+                    .{},
+                );
+                self.popup_placement_warned = true;
+            }
+        }
+
+        // Get monitor geometry for positioning
+        const gdk_display = gdk.Display.getDefault() orelse return;
+        const monitors = gdk_display.getMonitors();
+        const first = monitors.getObject(0) orelse return;
+        const monitor: *gdk.Monitor = @ptrCast(@alignCast(first));
+
+        var monitor_geo: gdk.Rectangle = undefined;
+        monitor.getGeometry(&monitor_geo);
+
+        const config = if (self.apprt_window.getConfig()) |v| v.get() else return;
+        const position = popupPosition(self.apprt_window, config);
+
+        const win_w: c_int = self.apprt_window.as(gtk.Widget).getWidth();
+        const win_h: c_int = self.apprt_window.as(gtk.Widget).getHeight();
+
+        const mon_x = monitor_geo.f_x;
+        const mon_y = monitor_geo.f_y;
+        const mon_w = monitor_geo.f_width;
+        const mon_h = monitor_geo.f_height;
+
+        var x: c_int = undefined;
+        var y: c_int = undefined;
+
+        switch (position) {
+            .center => {
+                x = mon_x + @divTrunc(mon_w - win_w, 2);
+                y = mon_y + @divTrunc(mon_h - win_h, 2);
+            },
+            .top => {
+                x = mon_x + @divTrunc(mon_w - win_w, 2);
+                y = mon_y;
+            },
+            .bottom => {
+                x = mon_x + @divTrunc(mon_w - win_w, 2);
+                y = mon_y + mon_h - win_h;
+            },
+            .left => {
+                x = mon_x;
+                y = mon_y + @divTrunc(mon_h - win_h, 2);
+            },
+            .right => {
+                x = mon_x + mon_w - win_w;
+                y = mon_y + @divTrunc(mon_h - win_h, 2);
+            },
+        }
+
+        _ = c.XMoveWindow(display, xid, x, y);
+        _ = c.XRaiseWindow(display, xid);
     }
 
     pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
@@ -455,6 +576,12 @@ const GetWindowPropertyError = X11Error || error{
 const Atoms = struct {
     kde_blur: c.Atom,
     motif_wm_hints: c.Atom,
+    net_wm_window_type: c.Atom,
+    net_wm_window_type_dialog: c.Atom,
+    net_wm_state: c.Atom,
+    net_wm_state_above: c.Atom,
+    net_wm_state_skip_taskbar: c.Atom,
+    net_wm_state_skip_pager: c.Atom,
 
     fn init(display: *gdk_x11.X11Display) Atoms {
         return .{
@@ -465,6 +592,30 @@ const Atoms = struct {
             .motif_wm_hints = gdk_x11.x11GetXatomByNameForDisplay(
                 display,
                 "_MOTIF_WM_HINTS",
+            ),
+            .net_wm_window_type = gdk_x11.x11GetXatomByNameForDisplay(
+                display,
+                "_NET_WM_WINDOW_TYPE",
+            ),
+            .net_wm_window_type_dialog = gdk_x11.x11GetXatomByNameForDisplay(
+                display,
+                "_NET_WM_WINDOW_TYPE_DIALOG",
+            ),
+            .net_wm_state = gdk_x11.x11GetXatomByNameForDisplay(
+                display,
+                "_NET_WM_STATE",
+            ),
+            .net_wm_state_above = gdk_x11.x11GetXatomByNameForDisplay(
+                display,
+                "_NET_WM_STATE_ABOVE",
+            ),
+            .net_wm_state_skip_taskbar = gdk_x11.x11GetXatomByNameForDisplay(
+                display,
+                "_NET_WM_STATE_SKIP_TASKBAR",
+            ),
+            .net_wm_state_skip_pager = gdk_x11.x11GetXatomByNameForDisplay(
+                display,
+                "_NET_WM_STATE_SKIP_PAGER",
             ),
         };
     }
@@ -525,3 +676,65 @@ const MotifWMHints = extern struct {
     input_mode: c_long = 0,
     status: c_ulong = 0,
 };
+
+/// Update the size of the popup terminal based on monitor dimensions.
+fn enteredMonitor(
+    _: *gdk.Surface,
+    monitor: *gdk.Monitor,
+    apprt_window: *ApprtWindow,
+) callconv(.c) void {
+    const window = apprt_window.as(gtk.Window);
+
+    var monitor_size: gdk.Rectangle = undefined;
+    monitor.getGeometry(&monitor_size);
+
+    const monitor_dims: Config.QuickTerminalSize.Dimensions = .{
+        .width = @intCast(monitor_size.f_width),
+        .height = @intCast(monitor_size.f_height),
+    };
+
+    const dims = if (apprt_window.isPopup()) popupSizeForMonitor(
+        apprt_window,
+        monitor_dims,
+    ) orelse return else dims: {
+        const config = if (apprt_window.getConfig()) |v| v.get() else return;
+        break :dims config.@"quick-terminal-size".calculate(
+            config.@"quick-terminal-position",
+            monitor_dims,
+        );
+    };
+
+    window.setDefaultSize(@intCast(dims.width), @intCast(dims.height));
+}
+
+fn popupPosition(
+    apprt_window: *ApprtWindow,
+    config: *const Config,
+) popupmod.Position {
+    return apprt_window.popupPosition() orelse switch (config.@"quick-terminal-position") {
+        .left => .left,
+        .right => .right,
+        .top => .top,
+        .bottom => .bottom,
+        .center => .center,
+    };
+}
+
+fn popupDimensionToPixels(dim: popupmod.Dimension, parent: u32) u32 {
+    return switch (dim.unit) {
+        .percent => parent * dim.value / 100,
+        .pixels => dim.value,
+    };
+}
+
+fn popupSizeForMonitor(
+    apprt_window: *ApprtWindow,
+    monitor_dims: Config.QuickTerminalSize.Dimensions,
+) ?Config.QuickTerminalSize.Dimensions {
+    const width = apprt_window.popupWidth() orelse return null;
+    const height = apprt_window.popupHeight() orelse return null;
+    return .{
+        .width = popupDimensionToPixels(width, monitor_dims.width),
+        .height = popupDimensionToPixels(height, monitor_dims.height),
+    };
+}
