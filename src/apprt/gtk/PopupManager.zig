@@ -387,7 +387,7 @@ pub const PopupManager = struct {
 
     /// Apply popup profile width/height to a GTK window before presenting.
     /// Resolves percentage dimensions against the primary monitor's geometry.
-    fn applyPopupSize(gtk_win: *gtk.Window, profile: *const popupmod.PopupProfile) void {
+    fn applyPopupSize(gtk_win: *gtk.Window, profile: popupmod.PopupProfile) void {
         const display = gdk.Display.getDefault() orelse return;
         const monitors = display.getMonitors();
         const first = monitors.getObject(0) orelse return;
