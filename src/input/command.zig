@@ -753,6 +753,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .show_popup,
         .hide_popup,
         .toggle_visibility,
+        .toggle_browser,
         .previous_tab,
         .next_tab,
         .last_tab,

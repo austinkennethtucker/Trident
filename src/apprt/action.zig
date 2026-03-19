@@ -367,6 +367,11 @@ pub const Action = union(Key) {
     /// Jump to a specific pane tab by 0-based index.
     goto_pane_tab: GotoPaneTab,
 
+    /// Toggle the browser pane beside the focused terminal surface.
+    /// When shown, opens a WKWebView (macOS) or WebKitGTK (Linux) browser
+    /// in a split beside the terminal. When hidden, closes the browser.
+    toggle_browser,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -442,6 +447,7 @@ pub const Action = union(Key) {
         goto_pane_tab_prev,
         goto_pane_tab_next,
         goto_pane_tab,
+        toggle_browser,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
