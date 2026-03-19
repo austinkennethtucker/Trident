@@ -842,6 +842,9 @@ pub const Action = union(enum) {
     /// configuration file to customize its behavior.
     toggle_quick_terminal,
 
+    /// Toggle the embedded browser pane beside the focused terminal.
+    toggle_browser,
+
     /// Toggle a named popup terminal.
     /// The parameter is the popup profile name (e.g., toggle_popup:quick).
     toggle_popup: []const u8,
@@ -1411,6 +1414,7 @@ pub const Action = union(enum) {
             .toggle_vi_line_numbers,
             .toggle_command_palette,
             .toggle_background_opacity,
+            .toggle_browser,
             .show_on_screen_keyboard,
             .reset_window_size,
             .activate_key_table,
