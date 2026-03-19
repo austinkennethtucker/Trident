@@ -24,7 +24,7 @@ jobs:
       - name: Install GTK build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libgtk-4-dev libadwaita-1-dev
+          sudo apt-get install -y -qq libgtk-4-dev libadwaita-1-dev blueprint-compiler
 
       - name: Set version
         id: version
