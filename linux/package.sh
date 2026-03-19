@@ -55,6 +55,7 @@ if [ "$SKIP_BUILD" = false ]; then
         -Dcpu=baseline \
         -Dpie=true \
         -Dstrip=true \
+        -Dsystem-gtk4-layer-shell=false \
         --prefix "$STAGING/usr"
     echo "==> Build complete."
 fi
@@ -185,6 +186,9 @@ verify_deb_package() {
     fi
     if ! list_deb_files "$workdir" | grep -q 'usr/bin/trident'; then
         echo "  WARN: /usr/bin/trident symlink not in .deb (nfpm may create it at install time)"
+    fi
+    if ! list_deb_files "$workdir" | grep -q 'libgtk4-layer-shell'; then
+        echo "  WARN: bundled libgtk4-layer-shell.so not found in .deb"
     fi
 
     rm -rf "$workdir"

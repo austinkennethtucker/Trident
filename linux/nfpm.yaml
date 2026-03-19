@@ -17,6 +17,13 @@ contents:
   - src: staging/usr/share/
     dst: /usr/share/
     type: tree
+  - src: staging/usr/lib/
+    dst: /usr/lib/
+    type: tree
+
+scripts:
+  postinstall: linux/postinstall.sh
+  postremove: linux/postremove.sh
 
 overrides:
   deb:
