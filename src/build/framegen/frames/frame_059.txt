@@ -1,41 +1,41 @@
-                                                                                                    
-                                        <span class="b">xx++++++++++++++++</span>                                          
-                                  <span class="b">++==***%%%************%***==++</span>                                    
-                              <span class="b">++***%==</span>                      <span class="b">=+****++</span>                                
-                          <span class="b">xx====++</span>                              <span class="b">++====xx</span>                            
-                        <span class="b">++**++</span>         x=%@@@@@@@@@@@@@$%+o         <span class="b">+=**xx</span>                          
-                      <span class="b">++**oo</span>      o%@@@@@@$$$$$$$$$$$$$$@@@@@$=       <span class="b">x+*=+x</span>                        
-                    <span class="b">++==</span>       +@@@@$$$$$$$$$$$$$$$$$$$$$$$$$$@@@*      <span class="b">x+==xx</span>                      
-                  <span class="b">x+==</span>      ~$@@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@@@o     <span class="b">++==</span>                      
-                  <span class="b">==+~</span>    ~@@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@@      <span class="b">==+x</span>                    
-                <span class="b">++++</span>     $@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@*    <span class="b">~+==</span>                    
-                <span class="b">==</span>     ·@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@@     <span class="b">==+x</span>                  
-              <span class="b">++++</span>    ~@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@    <span class="b">x+++</span>                  
-              <span class="b">+++o</span>    @$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*     <span class="b">==</span>                  
-              <span class="b">==</span>     @@@@@@@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@     <span class="b">==</span>                  
-              <span class="b">==</span>          ·$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$x    <span class="b">==</span>                  
-              <span class="b">==</span>            @$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@=    <span class="b">==xo</span>                
-              <span class="b">==</span>           o$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@=    <span class="b">==xo</span>                
-              <span class="b">==</span>     $%%%$@@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@=    <span class="b">==xo</span>                
-              <span class="b">==</span>     @@@@@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@=    <span class="b">==xo</span>                
-              <span class="b">==</span>     $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@*    <span class="b">==xo</span>                
-              <span class="b">==</span>     @$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@*    <span class="b">++xo</span>                
-              <span class="b">==</span>     @$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@%    <span class="b">++xx</span>                
-              <span class="b">==</span>     @$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@$    <span class="b">++xx</span>                
-              <span class="b">==</span>     @$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$    <span class="b">++xx</span>                
-              <span class="b">==</span>     $@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@    <span class="b">++xx</span>                
-              <span class="b">==x</span>    %@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@    <span class="b">++++</span>                
-              <span class="b">==+·</span>   =@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@    <span class="b">x+++</span>                
-              <span class="b">+++~</span>   x@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@    <span class="b">o+++</span>                
-              <span class="b">+++o</span>   ·$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@~   <span class="b">~+++</span>                
-              <span class="b">+++x</span>    @$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$+   <span class="b">·+++</span>                
-              <span class="b">xx++</span>    *@$$$$@$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@$$$$$$$$$@    <span class="b">~+++</span>                
-                <span class="b">==</span>     x@@@$$$@@@@$$$$$$$$@@@$$$@@@@$$$$$$$$@@@@$$$@@@@$@@@·    <span class="b">++++</span>                
-                <span class="b">++++</span>            +$@@@@@@@$=       ~*@@@@@@@@%~       +$@%~      <span class="b">==</span>                  
-                  <span class="b">==+x</span>                                                        <span class="b">==++</span>                  
-                    <span class="b">===+o</span> <span class="b">==%%+o</span>            <span class="b">==%%++</span>            <span class="b">++%%==</span>      <span class="b">xo=*++</span>                    
-                      <span class="b">++**++++***%**====%***==++==***%====**%***++++**%%%***++</span>                      
-                                  <span class="b">++++==++</span>          <span class="b">++++++++++</span>        <span class="b">++xx</span>                          
-                                                                                                    
-                                                                                                    
-                                                                                                    
+                                               <span class="b">··@··</span>                                                
+                                              <span class="b">··@@@··</span>                                               
+                                             <span class="b">··@@@@@··</span>                                              
+                                            <span class="b">··$@@@@@$··</span>                                             
+                             ···           ··<span class="b">$</span>$@@@@@$<span class="b">$</span>··           ···                              
+                            ··<span class="b">@</span>··         ··<span class="b">$</span>$$@@@@@$$<span class="b">$</span>··         ··<span class="b">@</span>··                             
+                           ··<span class="b">@</span>@<span class="b">@</span>··       ··<span class="b">$</span>$$$@@@@@$$$<span class="b">$</span>··       ··<span class="b">@</span>@<span class="b">@</span>··                            
+                          ··<span class="b">@</span>@@@<span class="b">@</span>··     ··<span class="b">$</span>$$$$@@@@@$$$$<span class="b">$</span>··     ··<span class="b">@</span>@@@<span class="b">@</span>··                           
+                         <span class="b">·</span>·<span class="b">$</span>@@@@@<span class="b">$</span>··   ··<span class="b">$</span>$$$$$@@@@@$$$$$<span class="b">$</span>··   ··<span class="b">$</span>@@@@@<span class="b">$</span>··                          
+                        <span class="b">··$$@@@@@</span>$<span class="b">$···</span>··<span class="b">$</span>$$$$$$@@@@@$$$$$$<span class="b">$</span>····<span class="b">·$</span>$@@<span class="b">@@@$$··</span>                         
+                       <span class="b">··$$$@@@@@$$$··$$$$$$$</span>$$@@@@@$$$$<span class="b">$$$$$··$$$@@@@@$$$···</span>                       
+                      <span class="b">··$$$$@@@@@$$$$$$$$$$$$$$@@@@@$$$$$$$$$$$$$$$@@@@@$$$$···</span>                     
+                     <span class="b">··$$$$$@@@@@$$$$$$$$$$$$$$@@@@@$$$$$$$$$$$$$$$$@@@@@$$$$$···</span>                   
+                    <span class="b">··$$$$$$$@@@@$$$$$$$$$$$$$$@@@@@$$$$$$$$$$$$$$$$$@@@@$$$$$$$·</span>                   
+                    <span class="b">·=</span>$<span class="b">$$$$$$$@@@@@$$$$$$$$$$$$@@@@@$$$$$$$$$$$$$$@@@@@$$$$$$$</span>$<span class="b">=·</span>                   
+                    <span class="b">·*%$$$$$$$$$$@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@$$$$$$$$$$%*·</span>                   
+                    <span class="b">·*%%$$$$$$$$$$$$@@@@@@@@@@@@@@@@@@@@@@@@@@@$$$$$$$$$$$$$$%%*·</span>                   
+                    <span class="b">·*%$$$$$$$$$$$$$$$$$$$$$$$$@@@@@$$$$$$$$$$$$$$$$$$$$$$$$$$%*·</span>                   
+                    <span class="b">··=%</span>$$$$$$$$$$$$$$$$$$$$$$$@@@@@$$$$$$$$$$$$$$$$$$$$$$$$$<span class="b">%=··</span>                   
+                     ···<span class="b">*%</span>$$$$$$$$$$$$$$$$$$$$@@@@@@@$$$$$$$$$$$$$$$$$$$$$$<span class="b">%*</span>···                    
+                       ···<span class="b">=%</span>$$$$$$$$$$$$$$$$$$@@@@@@@$$$$$$$$$$$$$$$$$$$$<span class="b">%=</span>···                      
+                         ···<span class="b">*%</span>$$$$$$$$$$$$$$$$$@@@@@$$$$$$$$$$$$$$$$$$$<span class="b">%*</span>···                        
+                           ···<span class="b">=%</span>$$$$$$$$$$$$$$$@@@@@$$$$$$$$$$$$$$$$$<span class="b">%=</span>···                          
+                             ···<span class="b">*%</span>$$$$$$$$$$$$@@@@@@@$$$$$$$$$$$$$$<span class="b">%*</span>···                            
+                               ···<span class="b">=%</span>$$$$$$$$$$$@@@@@$$$$$$$$$$$$$<span class="b">%=</span>···                              
+                                 ···<span class="b">*%</span>$$$$$$$$$@@@@@$$$$$$$$$$$<span class="b">%*</span>···                                
+                                   ···<span class="b">=%</span>$$$$$$@@@@@@@$$$$$$$$<span class="b">%=</span>···                                  
+                                     ···<span class="b">*%</span>$$$$@@@@@@@$$$$$$<span class="b">%*</span>···                                    
+                                       <span class="b">···=%</span>$$$@@@@@$$$$$<span class="b">%=···</span>                                      
+                                         <span class="b">···*%$$@@@@@$$%*···</span>                                        
+                                           <span class="b">··=%$@@@@@$%=··</span>                                          
+                                            <span class="b">··*%@@@@@%*··</span>                                           
+                                             <span class="b">·=%@@@@@%=·</span>                                            
+                                            <span class="b">··*%@@@@@%*··</span>                                           
+                                           <span class="b">··=%$$@@@$$%=··</span>                                          
+                                          <span class="b">··*%$$$@@@$$$%*··</span>                                         
+                                         <span class="b">··=%$$$$@@@$$$$%=··</span>                                        
+                                         <span class="b">·*%$$$$$@@@$$$$$%*·</span>                                        
+                                         <span class="b">··=*%$$$$@$$$$%*=··</span>                                        
+                                          <span class="b">····=*%$$$%*=····</span>                                         
+                                             ···········                                            
