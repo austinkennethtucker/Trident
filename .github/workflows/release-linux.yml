@@ -24,7 +24,7 @@ jobs:
       - name: Install GTK build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libgtk-4-dev libadwaita-1-dev meson ninja-build git python3-gobject
+          sudo apt-get install -y -qq libgtk-4-dev libadwaita-1-dev meson ninja-build git python3-gi
           # blueprint-compiler 0.16.0+ required; apt version is too old
           cd /tmp
           git clone --depth 1 --branch v0.16.0 https://gitlab.gnome.org/jwestman/blueprint-compiler.git
