@@ -11,13 +11,13 @@
 def main [
     --dmg              # Create a signed/notarized DMG instead of installing locally
     --identity: string # Codesign identity (auto-detected from keychain if omitted)
-    --skip-build       # Skip the build step; use existing macos/build/Release/Ghostty.app
+    --skip-build       # Skip the build step; use existing macos/build/Release/Trident.app
     --configuration: string = "Release" # Build configuration (Debug, Release, ReleaseLocal)
 ] {
     let repo_root = ($env.FILE_PWD | path dirname)
     let macos_dir = $env.FILE_PWD
     let build_dir = ($macos_dir | path join "build" $configuration)
-    let app_src = ($build_dir | path join "Ghostty.app")
+    let app_src = ($build_dir | path join "Trident.app")
     let entitlements = ($macos_dir | path join "Ghostty.entitlements")
 
     # --- Build ---
@@ -136,9 +136,11 @@ def create-distributable-dmg [app_path: string, identity: string, repo_root: str
     # create-dmg outputs to cwd with a name derived from the app
     cd $repo_root
     npx create-dmg --identity $identity $app_path ./
-    # Rename from auto-generated name (Ghostty *.dmg) to Trident.dmg
-    let generated = (glob "Ghostty*.dmg" | first)
-    mv $generated $dmg_name
+    # Rename from auto-generated name (Trident *.dmg) to Trident.dmg
+    let generated = (glob "Trident*.dmg" | first)
+    if $generated != $dmg_name {
+        mv $generated $dmg_name
+    }
     print $"(ansi green)DMG created: ($dmg_path)(ansi reset)"
 
     # --- Notarize ---
