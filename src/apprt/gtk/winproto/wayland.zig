@@ -11,6 +11,7 @@ const wayland = @import("wayland");
 
 const Config = @import("../../../config.zig").Config;
 const input = @import("../../../input.zig");
+const popupmod = @import("../../popup.zig");
 const ApprtWindow = @import("../class/window.zig").Window;
 
 const wl = wayland.client.wl;
@@ -248,6 +249,9 @@ pub const Window = struct {
     /// requesting attention from the user.
     activation_token: ?*xdg.ActivationTokenV1 = null,
 
+    /// Avoid repeating the same unsupported-placement warning every sync.
+    popup_placement_warned: bool = false,
+
     pub fn init(
         alloc: Allocator,
         app: *App,
@@ -402,12 +406,6 @@ pub const Window = struct {
         };
     }
 
-    // TODO: Parameterize this to read position/size from the popup profile
-    // instead of global config. For v1, this reads from global config which
-    // works correctly for the "quick" profile.
-    // TODO: Once parameterized, log warnings when a popup profile sets `x`,
-    // `y`, or `anchor` properties — these are not supported on Wayland
-    // (layer-shell only supports edge anchoring via quick-terminal-position).
     fn syncPopup(self: *Window) !void {
         const window = self.apprt_window.as(gtk.Window);
         const config = if (self.apprt_window.getConfig()) |v|
@@ -438,31 +436,36 @@ pub const Window = struct {
             },
         );
 
-        const anchored_edge: ?layer_shell.ShellEdge = switch (config.@"quick-terminal-position") {
-            .left => .left,
-            .right => .right,
-            .top => .top,
-            .bottom => .bottom,
-            .center => null,
-        };
-
-        for (std.meta.tags(layer_shell.ShellEdge)) |edge| {
-            if (anchored_edge) |anchored| {
-                if (edge == anchored) {
-                    layer_shell.setMargin(window, edge, 0);
-                    layer_shell.setAnchor(window, edge, true);
-                    continue;
-                }
+        if (self.apprt_window.isPopup() and !self.popup_placement_warned) {
+            const popup_anchor = self.apprt_window.popupAnchor();
+            const popup_x = self.apprt_window.popupX();
+            const popup_y = self.apprt_window.popupY();
+            if (popup_anchor != null or popup_x != null or popup_y != null) {
+                log.warn(
+                    "popup profile placement offsets and anchors are not supported on Wayland layer-shell yet; using position only",
+                    .{},
+                );
+                self.popup_placement_warned = true;
             }
-
-            // Arbitrary margin - could be made customizable?
-            layer_shell.setMargin(window, edge, 20);
-            layer_shell.setAnchor(window, edge, false);
         }
+
+        const position = popupPosition(self.apprt_window, config);
+        const anchors = popupAnchorsForPosition(position);
+        const margins = popupMarginsForPosition(position);
+
+        layer_shell.setAnchor(window, .top, anchors.top);
+        layer_shell.setAnchor(window, .right, anchors.right);
+        layer_shell.setAnchor(window, .bottom, anchors.bottom);
+        layer_shell.setAnchor(window, .left, anchors.left);
+
+        layer_shell.setMargin(window, .top, margins.top);
+        layer_shell.setMargin(window, .right, margins.right);
+        layer_shell.setMargin(window, .bottom, margins.bottom);
+        layer_shell.setMargin(window, .left, margins.left);
 
         if (self.slide) |slide| slide.release();
 
-        self.slide = if (anchored_edge) |anchored| slide: {
+        self.slide = if (anchors.slide_edge) |anchored| slide: {
             const mgr = self.app_context.kde_slide_manager orelse break :slide null;
 
             const slide = mgr.create(self.surface) catch |err| {
@@ -490,18 +493,25 @@ pub const Window = struct {
         apprt_window: *ApprtWindow,
     ) callconv(.c) void {
         const window = apprt_window.as(gtk.Window);
-        const config = if (apprt_window.getConfig()) |v| v.get() else return;
 
         var monitor_size: gdk.Rectangle = undefined;
         monitor.getGeometry(&monitor_size);
 
-        const dims = config.@"quick-terminal-size".calculate(
-            config.@"quick-terminal-position",
-            .{
-                .width = @intCast(monitor_size.f_width),
-                .height = @intCast(monitor_size.f_height),
-            },
-        );
+        const monitor_dims: Config.QuickTerminalSize.Dimensions = .{
+            .width = @intCast(monitor_size.f_width),
+            .height = @intCast(monitor_size.f_height),
+        };
+
+        const dims = if (apprt_window.isPopup()) popupSizeForMonitor(
+            apprt_window,
+            monitor_dims,
+        ) orelse return else dims: {
+            const config = if (apprt_window.getConfig()) |v| v.get() else return;
+            break :dims config.@"quick-terminal-size".calculate(
+                config.@"quick-terminal-position",
+                monitor_dims,
+            );
+        };
 
         window.setDefaultSize(@intCast(dims.width), @intCast(dims.height));
     }
@@ -528,3 +538,129 @@ pub const Window = struct {
         }
     }
 };
+
+const PopupAnchors = struct {
+    top: bool,
+    right: bool,
+    bottom: bool,
+    left: bool,
+    slide_edge: ?layer_shell.ShellEdge,
+};
+
+const PopupMargins = struct {
+    top: c_int,
+    right: c_int,
+    bottom: c_int,
+    left: c_int,
+};
+
+fn popupPosition(
+    apprt_window: *ApprtWindow,
+    config: *const Config,
+) popupmod.Position {
+    return apprt_window.popupPosition() orelse switch (config.@"quick-terminal-position") {
+        .left => .left,
+        .right => .right,
+        .top => .top,
+        .bottom => .bottom,
+        .center => .center,
+    };
+}
+
+fn popupAnchorsForPosition(position: popupmod.Position) PopupAnchors {
+    return switch (position) {
+        .left => .{
+            .top = false,
+            .right = false,
+            .bottom = false,
+            .left = true,
+            .slide_edge = .left,
+        },
+        .right => .{
+            .top = false,
+            .right = true,
+            .bottom = false,
+            .left = false,
+            .slide_edge = .right,
+        },
+        .top => .{
+            .top = true,
+            .right = false,
+            .bottom = false,
+            .left = false,
+            .slide_edge = .top,
+        },
+        .bottom => .{
+            .top = false,
+            .right = false,
+            .bottom = true,
+            .left = false,
+            .slide_edge = .bottom,
+        },
+        .center => .{
+            .top = true,
+            .right = true,
+            .bottom = true,
+            .left = true,
+            .slide_edge = null,
+        },
+    };
+}
+
+fn popupMarginsForPosition(position: popupmod.Position) PopupMargins {
+    return switch (position) {
+        .left => .{ .top = 20, .right = 20, .bottom = 20, .left = 0 },
+        .right => .{ .top = 20, .right = 0, .bottom = 20, .left = 20 },
+        .top => .{ .top = 0, .right = 20, .bottom = 20, .left = 20 },
+        .bottom => .{ .top = 20, .right = 20, .bottom = 0, .left = 20 },
+        .center => .{ .top = 20, .right = 20, .bottom = 20, .left = 20 },
+    };
+}
+
+fn popupDimensionToPixels(dim: popupmod.Dimension, parent: u32) u32 {
+    return switch (dim.unit) {
+        .percent => parent * dim.value / 100,
+        .pixels => dim.value,
+    };
+}
+
+fn popupSizeForMonitor(
+    apprt_window: *ApprtWindow,
+    monitor_dims: Config.QuickTerminalSize.Dimensions,
+) ?Config.QuickTerminalSize.Dimensions {
+    const width = apprt_window.popupWidth() orelse return null;
+    const height = apprt_window.popupHeight() orelse return null;
+    return .{
+        .width = popupDimensionToPixels(width, monitor_dims.width),
+        .height = popupDimensionToPixels(height, monitor_dims.height),
+    };
+}
+
+test "popup anchors for centered popup use all edges" {
+    const anchors = popupAnchorsForPosition(.center);
+    try std.testing.expect(anchors.top);
+    try std.testing.expect(anchors.right);
+    try std.testing.expect(anchors.bottom);
+    try std.testing.expect(anchors.left);
+    try std.testing.expect(anchors.slide_edge == null);
+}
+
+test "popup anchors for edge popup preserve slide edge" {
+    const anchors = popupAnchorsForPosition(.left);
+    try std.testing.expect(!anchors.top);
+    try std.testing.expect(!anchors.right);
+    try std.testing.expect(!anchors.bottom);
+    try std.testing.expect(anchors.left);
+    try std.testing.expectEqual(layer_shell.ShellEdge.left, anchors.slide_edge.?);
+}
+
+test "popup dimensions convert percent and pixels" {
+    try std.testing.expectEqual(@as(u32, 480), popupDimensionToPixels(
+        popupmod.Dimension.initPercent(40),
+        1200,
+    ));
+    try std.testing.expectEqual(@as(u32, 320), popupDimensionToPixels(
+        popupmod.Dimension.initPixels(320),
+        1200,
+    ));
+}

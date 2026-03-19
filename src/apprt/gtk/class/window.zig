@@ -11,6 +11,7 @@ const gtk = @import("gtk");
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const configpkg = @import("../../../config.zig");
+const popupmod = @import("../../popup.zig");
 const TitlebarStyle = configpkg.Config.GtkTitlebarStyle;
 const input = @import("../../../input.zig");
 const CoreSurface = @import("../../../Surface.zig");
@@ -242,6 +243,16 @@ pub const Window = extern struct {
         /// The popup profile name this window is associated with,
         /// or null if this is not a popup window.
         popup_profile_name: ?[:0]const u8 = null,
+
+        /// Popup geometry copied from the profile at creation time.
+        /// This lets the windowing protocol read stable value types
+        /// without needing access to PopupManager internals.
+        popup_position: ?popupmod.Position = null,
+        popup_anchor: ?popupmod.Anchor = null,
+        popup_x: ?popupmod.Dimension = null,
+        popup_y: ?popupmod.Dimension = null,
+        popup_width: ?popupmod.Dimension = null,
+        popup_height: ?popupmod.Dimension = null,
 
         /// Whether this window is a quick terminal. If it is then it
         /// behaves slightly differently under certain scenarios.
@@ -907,6 +918,47 @@ pub const Window = extern struct {
     /// Set the popup profile name for this window.
     pub fn setPopupProfileName(self: *Self, name: ?[:0]const u8) void {
         self.private().popup_profile_name = name;
+    }
+
+    /// Get the popup position for this window, or null if not a popup.
+    pub fn popupPosition(self: *Self) ?popupmod.Position {
+        return self.private().popup_position;
+    }
+
+    /// Get the popup anchor for this window, or null if not configured.
+    pub fn popupAnchor(self: *Self) ?popupmod.Anchor {
+        return self.private().popup_anchor;
+    }
+
+    /// Get the popup X offset for this window, or null if not configured.
+    pub fn popupX(self: *Self) ?popupmod.Dimension {
+        return self.private().popup_x;
+    }
+
+    /// Get the popup Y offset for this window, or null if not configured.
+    pub fn popupY(self: *Self) ?popupmod.Dimension {
+        return self.private().popup_y;
+    }
+
+    /// Get the popup width for this window, or null if not a popup.
+    pub fn popupWidth(self: *Self) ?popupmod.Dimension {
+        return self.private().popup_width;
+    }
+
+    /// Get the popup height for this window, or null if not a popup.
+    pub fn popupHeight(self: *Self) ?popupmod.Dimension {
+        return self.private().popup_height;
+    }
+
+    /// Copy popup geometry from the profile onto the window.
+    pub fn setPopupGeometry(self: *Self, profile: popupmod.PopupProfile) void {
+        const priv = self.private();
+        priv.popup_position = profile.position;
+        priv.popup_anchor = profile.anchor;
+        priv.popup_x = profile.x;
+        priv.popup_y = profile.y;
+        priv.popup_width = profile.width;
+        priv.popup_height = profile.height;
     }
 
     /// Whether this terminal is a quick terminal or not.

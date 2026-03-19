@@ -1314,6 +1314,7 @@ pub const SplitTree = extern struct {
 
         const container = gtk.Box.new(.vertical, 0);
         const bar = PaneTabBar.new();
+        const bar_widget = bar.as(gtk.Widget);
         bar.setTabs(state.tabs.items, state.active_index);
 
         _ = PaneTabBar.signals.@"tab-selected".connect(
@@ -1339,11 +1340,13 @@ pub const SplitTree = extern struct {
         );
 
         if (position == .top) {
-            container.append(bar.as(gtk.Widget));
+            bar_widget.addCssClass("top");
+            container.append(bar_widget);
             container.append(surface_widget.widget);
         } else {
+            bar_widget.addCssClass("bottom");
             container.append(surface_widget.widget);
-            container.append(bar.as(gtk.Widget));
+            container.append(bar_widget);
         }
 
         return .initNew(container.as(gtk.Widget));

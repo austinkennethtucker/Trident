@@ -288,8 +288,10 @@ pub const PopupManager = struct {
             .@"is-popup" = true,
         });
 
-        // Store the profile name on the window so surfaces can read it
+        // Store popup metadata on the window so surfaces and winproto
+        // modules can read it without reaching back into PopupManager.
         win.setPopupProfileName(name_z);
+        win.setPopupGeometry(profile);
 
         // Track the window with a weak reference
         var weak_ref: WeakRef(Window) = .empty;

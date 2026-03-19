@@ -774,16 +774,19 @@ pub const Application = extern struct {
             .toggle_quick_terminal => return Action.toggleQuickTerminal(self),
             .toggle_popup => {
                 const priv = self.private();
+                if (!priv.winproto.supportsPopup()) return false;
                 if (priv.popup_manager) |*pm| return pm.toggle(value.name);
                 return false;
             },
             .show_popup => {
                 const priv = self.private();
+                if (!priv.winproto.supportsPopup()) return false;
                 if (priv.popup_manager) |*pm| return pm.show(value.name);
                 return false;
             },
             .hide_popup => {
                 const priv = self.private();
+                if (!priv.winproto.supportsPopup()) return false;
                 if (priv.popup_manager) |*pm| return pm.hide(value.name);
                 return false;
             },
@@ -2732,8 +2735,10 @@ const Action = struct {
     }
 
     pub fn toggleQuickTerminal(self: *Application) bool {
-        // Delegate to the popup manager using the "quick" profile name.
         const priv = self.private();
+        if (!priv.winproto.supportsPopup()) return false;
+
+        // Delegate to the popup manager using the "quick" profile name.
         if (priv.popup_manager) |*pm| return pm.toggle(popupmod.quick_profile_name);
 
         // Fallback: if popup manager isn't initialized, use legacy path.
@@ -2741,8 +2746,6 @@ const Action = struct {
             win.toggleVisibility();
             return true;
         }
-
-        if (!priv.winproto.supportsPopup()) return false;
 
         // Create our new window as a quick terminal
         const win = gobject.ext.newInstance(Window, .{
