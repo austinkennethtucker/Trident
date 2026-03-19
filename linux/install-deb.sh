@@ -36,4 +36,4 @@ fi
 echo "==> Installing $(basename "$DEB")..."
 dpkg -i "$DEB" || apt-get install -f -y
 
-echo "==> Done! Run 'ghostty' to launch."
+echo "==> Done! Run 'trident' (or 'ghostty') to launch."

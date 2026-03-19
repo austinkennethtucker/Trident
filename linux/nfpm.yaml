@@ -11,6 +11,9 @@ license: MIT
 contents:
   - src: staging/usr/bin/ghostty
     dst: /usr/bin/ghostty
+  - src: /usr/bin/ghostty
+    dst: /usr/bin/trident
+    type: symlink
   - src: staging/usr/share/
     dst: /usr/share/
     type: tree
