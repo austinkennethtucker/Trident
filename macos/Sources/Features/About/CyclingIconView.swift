@@ -26,7 +26,7 @@ struct CyclingIconView: View {
                 }
             }
         }
-        .accessibilityLabel("Ghostty Application Icon")
+        .accessibilityLabel("Trident Application Icon")
         .accessibilityHint("Click to cycle through icon variants")
     }
 
