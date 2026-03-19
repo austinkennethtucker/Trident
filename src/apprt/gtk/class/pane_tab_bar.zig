@@ -21,13 +21,13 @@ pub const PaneTabBar = extern struct {
         pub const @"tab-selected" = struct {
             pub const name = "tab-selected";
             pub const connect = impl.connect;
-            const impl = gobject.ext.defineSignal(name, Self, &.{u32}, void);
+            const impl = gobject.ext.defineSignal(name, Self, &.{c_uint}, void);
         };
 
         pub const @"tab-closed" = struct {
             pub const name = "tab-closed";
             pub const connect = impl.connect;
-            const impl = gobject.ext.defineSignal(name, Self, &.{u32}, void);
+            const impl = gobject.ext.defineSignal(name, Self, &.{c_uint}, void);
         };
 
         pub const @"new-tab-requested" = struct {
@@ -64,7 +64,7 @@ pub const PaneTabBar = extern struct {
         widget.addCssClass("linked");
         widget.setHalign(.fill);
         widget.setValign(.start);
-        widget.setHeightRequest(26);
+        widget.setSizeRequest(-1, 26);
     }
 
     pub fn setTabs(self: *Self, tabs: []const *Surface, active_index: usize) void {

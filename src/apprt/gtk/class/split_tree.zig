@@ -1359,7 +1359,7 @@ pub const SplitTree = extern struct {
 
     fn paneTabBarSelected(
         bar: *PaneTabBar,
-        index: u32,
+        index: c_uint,
         self: *Self,
     ) callconv(.c) void {
         const surface = bar.getActiveSurface() orelse return;
@@ -1370,7 +1370,7 @@ pub const SplitTree = extern struct {
 
     fn paneTabBarClosed(
         bar: *PaneTabBar,
-        index: u32,
+        index: c_uint,
         self: *Self,
     ) callconv(.c) void {
         const surface = bar.getActiveSurface() orelse return;
