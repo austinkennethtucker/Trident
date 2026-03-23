@@ -1084,6 +1084,23 @@ palette: Palette = .{},
 /// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
 
+/// Whether to show a border around the focused split pane. When multiple panes
+/// are visible, the focused pane will have a colored border and arrow markers
+/// at edges adjacent to other panes.
+///
+/// This is only shown when there are multiple panes visible. Single-pane
+/// layouts and zoomed panes do not show the border.
+///
+/// Currently only rendered on macOS. Other runtimes may accept this setting
+/// but have no visual effect yet.
+@"focused-split-border": bool = true,
+
+/// The color of the focused split border. If not set, defaults to Trident teal
+/// (#4ec9b0).
+///
+/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
+@"focused-split-border-color": ?Color = null,
+
 /// Control when Trident preserves a zoomed split. Under normal circumstances,
 /// any operation that changes focus or layout of the split tree in a window
 /// will unzoom any zoomed split. This configuration allows you to control

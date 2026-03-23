@@ -539,6 +539,35 @@ extension Ghostty {
             )
         }
 
+        var focusedSplitBorder: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "focused-split-border"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        /// Trident teal (#4ec9b0) — default for focused-split-border-color
+        private static let tridentTeal = Color(red: 78.0 / 255, green: 201.0 / 255, blue: 176.0 / 255)
+
+        var focusedSplitBorderColor: Color {
+            guard let config = self.config else {
+                return Self.tridentTeal
+            }
+
+            var color: ghostty_config_color_s = .init()
+            let key = "focused-split-border-color"
+            if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
+                return Self.tridentTeal
+            }
+
+            return .init(
+                red: Double(color.r) / 255,
+                green: Double(color.g) / 255,
+                blue: Double(color.b) / 255
+            )
+        }
+
         var splitDividerColor: Color {
             let backgroundColor = OSColor(backgroundColor)
             let isLightBackground = backgroundColor.isLightColor
