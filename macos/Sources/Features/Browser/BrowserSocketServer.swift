@@ -85,11 +85,8 @@ class BrowserSocketServer {
         source.setEventHandler { [weak self] in
             self?.acceptConnection()
         }
-        source.setCancelHandler { [weak self] in
-            if let fd = self?.socketFD, fd >= 0 {
-                Darwin.close(fd)
-                self?.socketFD = -1
-            }
+        source.setCancelHandler {
+            // FD is closed by stop() — don't double-close here
         }
         listenSource = source
         source.resume()
@@ -387,16 +384,79 @@ class BrowserSocketServer {
                 }
             }
 
-            // Import localStorage
+            // Import localStorage — use JSONSerialization for safe escaping
             if let ls = session["localStorage"] as? String {
-                let escaped = ls.replacingOccurrences(of: "'", with: "\\'")
-                let js = "Object.entries(JSON.parse('\(escaped)')).forEach(([k,v])=>localStorage.setItem(k,v))"
-                let sem = DispatchSemaphore(value: 0)
-                model?.evaluateJavaScript(js) { _, _ in sem.signal() }
-                sem.wait()
+                if let jsonData = try? JSONSerialization.data(withJSONObject: ls),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    let js = "Object.entries(JSON.parse(\(jsonString))).forEach(([k,v])=>localStorage.setItem(k,v))"
+                    let sem = DispatchSemaphore(value: 0)
+                    var jsError: Error?
+                    model?.evaluateJavaScript(js) { _, err in
+                        jsError = err
+                        sem.signal()
+                    }
+                    sem.wait()
+                    if let err = jsError {
+                        return ["ok": false, "error": "localStorage import failed: \(err.localizedDescription)"]
+                    }
+                }
             }
 
             return ["ok": true]
+
+        case "cert_info":
+            var result: [String: Any] = [:]
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                if let chain = self?.model?.lastCertificateChain {
+                    result = ["ok": true, "certificates": chain]
+                } else {
+                    result = ["ok": true, "certificates": [] as [[String: Any]]]
+                }
+                sem.signal()
+            }
+            sem.wait()
+            return result
+
+        case "proxy_set":
+            let url = command["url"] as? String
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.model?.setProxy(url)
+                sem.signal()
+            }
+            sem.wait()
+            return ["ok": true, "proxy": url as Any]
+
+        case "har_start":
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.model?.startHARRecording()
+                sem.signal()
+            }
+            sem.wait()
+            return ["ok": true]
+
+        case "har_stop":
+            var count = 0
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.model?.stopHARRecording()
+                count = self?.model?.harRecorder.entryCount ?? 0
+                sem.signal()
+            }
+            sem.wait()
+            return ["ok": true, "entry_count": count]
+
+        case "har_export":
+            var harData: [String: Any] = [:]
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                harData = self?.model?.exportHAR() ?? [:]
+                sem.signal()
+            }
+            sem.wait()
+            return ["ok": true, "har": harData]
 
         default:
             return ["ok": false, "error": "unknown command"]
