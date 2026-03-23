@@ -62,6 +62,7 @@ pub const PaneTabBar = extern struct {
         self.as(gtk.Orientable).setOrientation(.horizontal);
         widget.addCssClass("toolbar");
         widget.addCssClass("linked");
+        widget.addCssClass("pane-tab-bar");
         widget.setHalign(.fill);
         widget.setValign(.start);
         widget.setSizeRequest(-1, 26);
@@ -84,7 +85,10 @@ pub const PaneTabBar = extern struct {
             button.setHasFrame(0);
             button.as(gtk.Widget).setHexpand(1);
             button.as(gtk.Widget).addCssClass("flat");
-            if (index == active_index) button.as(gtk.Widget).addCssClass("suggested-action");
+            if (index == active_index) {
+                button.as(gtk.Widget).addCssClass("suggested-action");
+                button.as(gtk.Widget).addCssClass("pane-tab-active");
+            }
 
             label.setEllipsize(.end);
             label.setMaxWidthChars(20);
