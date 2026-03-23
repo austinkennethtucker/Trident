@@ -950,47 +950,55 @@ class BaseTerminalController: NSWindowController,
 
     /// Close the active pane tab. If last tab, close the pane.
     private func closePaneTab(at surface: Ghostty.SurfaceView) {
-        guard let paneTabGroup = paneTabGroup(for: surface) else { return }
-        let node = paneTabGroup.node
-        var group = paneTabGroup.group
-        let currentIndex = group.activeIndex
-        group.tabs.remove(at: currentIndex)
-
-        if group.tabs.isEmpty {
-            closeSurface(node)
-            return
-        }
-
-        if group.activeIndex >= group.tabs.count {
-            group.activeIndex = group.tabs.count - 1
-        }
-
-        replacePaneTabGroup(node: node, with: group, moveFocusTo: group.activeView, moveFocusFrom: surface)
+        guard let paneTabGroup = paneTabGroup(for: surface),
+              let index = paneTabGroup.group.index(of: surface) else { return }
+        closePaneTab(
+            node: paneTabGroup.node,
+            group: paneTabGroup.group,
+            index: index,
+            moveFocusFrom: surface,
+            preferredFocusAfterClose: surface)
     }
 
     /// Close a specific tab by index (from the tab bar UI).
     private func closePaneTabAtIndex(surface: Ghostty.SurfaceView, index: Int) {
         guard let paneTabGroup = paneTabGroup(for: surface) else { return }
-        let node = paneTabGroup.node
-        var group = paneTabGroup.group
+        closePaneTab(
+            node: paneTabGroup.node,
+            group: paneTabGroup.group,
+            index: index,
+            moveFocusFrom: surface,
+            preferredFocusAfterClose: surface)
+    }
+
+    private func closePaneTab(
+        node: SplitTree<Ghostty.SurfaceView>.Node,
+        group: SplitTree<Ghostty.SurfaceView>.TabGroup,
+        index: Int,
+        moveFocusFrom oldSurface: Ghostty.SurfaceView? = nil,
+        preferredFocusAfterClose preferredFocus: Ghostty.SurfaceView? = nil
+    ) {
+        var group = group
         guard index >= 0, index < group.tabCount else { return }
 
         let wasActiveTab = index == group.activeIndex
-        group.tabs.remove(at: index)
+        group.removeTab(at: index)
 
         if group.tabs.isEmpty {
             closeSurface(node)
             return
         }
 
-        if group.activeIndex >= group.tabs.count {
-            group.activeIndex = group.tabs.count - 1
-        } else if index < group.activeIndex {
-            group.activeIndex -= 1
-        }
+        let focusTarget: Ghostty.SurfaceView =
+            if wasActiveTab {
+                group.activeView
+            } else if let preferredFocus, group.contains(preferredFocus) {
+                preferredFocus
+            } else {
+                group.activeView
+            }
 
-        let focusTarget = wasActiveTab ? group.activeView : surface
-        replacePaneTabGroup(node: node, with: group, moveFocusTo: focusTarget, moveFocusFrom: surface)
+        replacePaneTabGroup(node: node, with: group, moveFocusTo: focusTarget, moveFocusFrom: oldSurface)
     }
 
     /// Cycle to previous/next pane tab.
