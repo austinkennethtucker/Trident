@@ -43,8 +43,8 @@ extension Ghostty {
                             BrowserPaneView(
                                 model: surfaceView.browserModel
                                     ?? BrowserPaneModel(),
-                                onBrowserFocused: {
-                                    surfaceView.focusDidChange(false)
+                                onBrowserFocused: { [weak surfaceView] in
+                                    surfaceView?.focusDidChange(false)
                                 }
                             )
                         },

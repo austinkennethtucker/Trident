@@ -25,9 +25,14 @@ struct BrowserWebView: NSViewRepresentable {
         // Install a local event monitor so clicks inside the WKWebView
         // trigger the focus callback (WKWebView never becomes AppKit first
         // responder when hosted inside SwiftUI).
+        // Note: callback is captured once here; it is stable because the
+        // underlying surfaceView identity does not change.
         let callback = onBrowserFocused
+        if let existing = context.coordinator.monitor {
+            NSEvent.removeMonitor(existing)
+        }
         context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(
-            matching: .leftMouseDown
+            matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak wv] event in
             guard let wv = wv else { return event }
             let loc = event.locationInWindow
