@@ -1,10 +1,11 @@
 import Foundation
 import Combine
 import WebKit
+import Network
 import Security
 
 /// Model backing the embedded browser pane. Manages navigation state
-/// and owns the WKWebView configuration.
+/// and owns the WKWebView instance (persists across SwiftUI rebuilds).
 class BrowserPaneModel: NSObject, ObservableObject {
     let id = UUID()
 
@@ -23,7 +24,6 @@ class BrowserPaneModel: NSObject, ObservableObject {
     /// Whether to enforce TLS validation
     let tlsStrict: Bool
 
-    private var webView: WKWebView?
     private var observations: [NSKeyValueObservation] = []
     private(set) var socketServer: BrowserSocketServer?
     var inspectorOverlay: BrowserInspectorOverlay?
@@ -38,6 +38,11 @@ class BrowserPaneModel: NSObject, ObservableObject {
 
     /// HAR recorder for capturing HTTP request/response metadata.
     let harRecorder = BrowserHARRecorder()
+
+    /// The WKWebView instance. Created lazily on first access so the proxy
+    /// relay is guaranteed to be running before the web view configures its
+    /// proxy settings.
+    private(set) lazy var webView: WKWebView = createWebView()
 
     init(proxyURL: String? = nil, proxyCertPath: String? = nil, tlsStrict: Bool = true) {
         self.proxyURL = proxyURL
@@ -75,13 +80,57 @@ class BrowserPaneModel: NSObject, ObservableObject {
         observations.removeAll()
     }
 
-    /// Bind to a WKWebView for KVO observation of navigation state.
-    func bind(to webView: WKWebView) {
-        self.webView = webView
+    // MARK: - WKWebView Creation
+
+    private func createWebView() -> WKWebView {
+        let config = WKWebViewConfiguration()
+        // Non-persistent data store — no cross-session bleed
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+
+        // Configure proxy routing through local relay (macOS 14+)
+        if #available(macOS 14.0, *) {
+            if let relay = proxyRelay, relay.isRunning {
+                let endpoint = NWEndpoint.hostPort(
+                    host: .ipv4(.loopback),
+                    port: NWEndpoint.Port(integerLiteral: relay.localPort)
+                )
+                dataStore.proxyConfigurations = [ProxyConfiguration(httpCONNECTProxy: endpoint)]
+                print("[BrowserPane] Proxy routing via local relay on port \(relay.localPort)")
+            }
+        } else if proxyURL != nil {
+            print("[BrowserPane] WARNING: Proxy routing requires macOS 14+, proxy config ignored")
+        }
+
+        config.websiteDataStore = dataStore
+
+        // Register JS message handler for HAR fetch/XHR interception.
+        // Use a weak wrapper to avoid retain cycle:
+        // model -> webView -> userContentController -> handler -> model
+        let contentController = config.userContentController
+        contentController.add(WeakScriptMessageHandler(self), name: "harLog")
+
+        // Inject fetch/XHR monkey-patch script for HAR recording
+        let harScript = WKUserScript(
+            source: BrowserWebView.harInterceptScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+        contentController.addUserScript(harScript)
+
+        let wv = WKWebView(frame: .zero, configuration: config)
+        wv.navigationDelegate = self
+        wv.allowsBackForwardNavigationGestures = true
+
+        setupObservations(for: wv)
+        self.inspectorOverlay = BrowserInspectorOverlay(webView: wv)
+
+        return wv
+    }
+
+    /// Set up KVO observations on the web view for navigation state.
+    private func setupObservations(for webView: WKWebView) {
         observations.forEach { $0.invalidate() }
         observations.removeAll()
-
-        self.inspectorOverlay = BrowserInspectorOverlay(webView: webView)
 
         observations.append(webView.observe(\.url) { [weak self] wv, _ in
             DispatchQueue.main.async {
@@ -126,19 +175,19 @@ class BrowserPaneModel: NSObject, ObservableObject {
         }
         self.urlString = normalized
         guard let url = URL(string: normalized) else { return }
-        webView?.load(URLRequest(url: url))
+        webView.load(URLRequest(url: url))
     }
 
-    func goBack() { webView?.goBack() }
-    func goForward() { webView?.goForward() }
-    func reload() { webView?.reload() }
-    func stopLoading() { webView?.stopLoading() }
+    func goBack() { webView.goBack() }
+    func goForward() { webView.goForward() }
+    func reload() { webView.reload() }
+    func stopLoading() { webView.stopLoading() }
 
     // MARK: - Socket Command Helpers
 
     func evaluateJavaScript(_ code: String, completion: @escaping (Any?, Error?) -> Void) {
         DispatchQueue.main.async { [weak self] in
-            self?.webView?.evaluateJavaScript(code, completionHandler: completion)
+            self?.webView.evaluateJavaScript(code, completionHandler: completion)
         }
     }
 
@@ -162,7 +211,7 @@ class BrowserPaneModel: NSObject, ObservableObject {
 
     func getCookies(completion: @escaping ([HTTPCookie]) -> Void) {
         DispatchQueue.main.async { [weak self] in
-            guard let store = self?.webView?.configuration.websiteDataStore.httpCookieStore else {
+            guard let store = self?.webView.configuration.websiteDataStore.httpCookieStore else {
                 completion([])
                 return
             }
@@ -191,7 +240,7 @@ class BrowserPaneModel: NSObject, ObservableObject {
 
     func setCookie(_ cookie: HTTPCookie, completion: @escaping () -> Void) {
         DispatchQueue.main.async { [weak self] in
-            guard let store = self?.webView?.configuration.websiteDataStore.httpCookieStore else {
+            guard let store = self?.webView.configuration.websiteDataStore.httpCookieStore else {
                 completion()
                 return
             }
@@ -238,7 +287,6 @@ class BrowserPaneModel: NSObject, ObservableObject {
                 // Validity dates
                 if let notBeforeEntry = values[oidNotBefore],
                    let notBefore = notBeforeEntry[kSecPropertyKeyValue as String] as? Double {
-                    // SecCertificateCopyValues returns dates as CFNumber (absolute time)
                     let date = Date(timeIntervalSinceReferenceDate: notBefore)
                     info["notBefore"] = isoFormatter.string(from: date)
                 }
@@ -291,5 +339,108 @@ class BrowserPaneModel: NSObject, ObservableObject {
 
     func exportHAR() -> [String: Any] {
         harRecorder.exportHAR()
+    }
+}
+
+// MARK: - WKNavigationDelegate
+
+extension BrowserPaneModel: WKNavigationDelegate {
+    func webView(
+        _ webView: WKWebView,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let serverTrust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+
+        // Capture certificate chain for cert_info command
+        storeCertificateChain(serverTrust)
+
+        // If TLS validation is disabled entirely
+        if !tlsStrict {
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+            return
+        }
+
+        // If a proxy CA cert is configured, trust it for this connection only
+        if let certPath = proxyCertPath,
+           let cert = loadCertificate(fromPEM: certPath) {
+            SecTrustSetAnchorCertificates(serverTrust, [cert] as CFArray)
+            SecTrustSetAnchorCertificatesOnly(serverTrust, false)
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+            return
+        }
+
+        completionHandler(.performDefaultHandling, nil)
+    }
+
+    /// Load a PEM-encoded certificate file and return a SecCertificate.
+    /// Strips PEM headers and decodes base64 to DER format.
+    private func loadCertificate(fromPEM path: String) -> SecCertificate? {
+        guard let pemData = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        let base64 = pemData
+            .replacingOccurrences(of: "-----BEGIN CERTIFICATE-----", with: "")
+            .replacingOccurrences(of: "-----END CERTIFICATE-----", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "\r", with: "")
+        guard let derData = Data(base64Encoded: base64) else { return nil }
+        return SecCertificateCreateWithData(nil, derData as CFData)
+    }
+}
+
+// MARK: - WKScriptMessageHandler (HAR logging from JS)
+
+extension BrowserPaneModel: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "harLog",
+              let body = message.body as? [String: Any],
+              harRecorder.isRecording else { return }
+
+        let method = body["method"] as? String ?? "GET"
+        let url = body["url"] as? String ?? ""
+        let status = body["status"] as? Int ?? 0
+        let statusText = body["statusText"] as? String ?? ""
+        let duration = (body["duration"] as? Double ?? 0) / 1000.0
+
+        var reqHeaders: [(name: String, value: String)] = []
+        if let headers = body["requestHeaders"] as? [String: String] {
+            reqHeaders = headers.map { (name: $0.key, value: $0.value) }
+        }
+        var respHeaders: [(name: String, value: String)] = []
+        if let headers = body["responseHeaders"] as? [String: String] {
+            respHeaders = headers.map { (name: $0.key, value: $0.value) }
+        }
+
+        harRecorder.append(HAREntry(
+            startedDateTime: Date(),
+            method: method,
+            url: url,
+            httpVersion: "HTTP/1.1",
+            requestHeaders: reqHeaders,
+            responseStatus: status,
+            responseStatusText: statusText,
+            responseHeaders: respHeaders,
+            responseBodySize: 0,
+            timings: HARTimings(connect: 0, send: 0, wait: duration, receive: 0),
+            source: .jsIntercept
+        ))
+    }
+}
+
+// MARK: - WeakScriptMessageHandler
+
+/// Weak wrapper to avoid retain cycle from WKUserContentController.add().
+class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    private weak var delegate: WKScriptMessageHandler?
+
+    init(_ delegate: WKScriptMessageHandler) {
+        self.delegate = delegate
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        delegate?.userContentController(controller, didReceive: message)
     }
 }
