@@ -27,11 +27,36 @@ output: LazyPath,
 
 /// Run libtool against a list of library files to combine into a single
 /// static library.
+///
+/// On macOS, Zig's archiver may produce `.a` files with non-8-byte-aligned
+/// members. Xcode 26's `libtool -static` silently drops misaligned members
+/// when combining archives. To work around this, we run each input through
+/// Apple's `ranlib` first (via a wrapper script) which rewrites the archive
+/// with proper alignment.
 pub fn create(b: *std.Build, opts: Options) *LibtoolStep {
     const self = b.allocator.create(LibtoolStep) catch @panic("OOM");
 
     const run_step = RunStep.create(b, b.fmt("libtool {s}", .{opts.name}));
-    run_step.addArgs(&.{ "libtool", "-static", "-o" });
+    run_step.addArgs(&.{
+        "/bin/sh", "-c",
+        \\# Copy each input archive to a temp dir and run ranlib to fix
+        \\# member alignment before combining with libtool.
+        \\set -e
+        \\TMPDIR=$(mktemp -d)
+        \\trap 'rm -rf "$TMPDIR"' EXIT
+        \\OUTFILE="$1"; shift
+        \\LIBS=""
+        \\i=0
+        \\for lib in "$@"; do
+        \\    cp "$lib" "$TMPDIR/lib_${i}.a"
+        \\    ranlib "$TMPDIR/lib_${i}.a"
+        \\    LIBS="$LIBS $TMPDIR/lib_${i}.a"
+        \\    i=$((i + 1))
+        \\done
+        \\libtool -static -o "$OUTFILE" $LIBS
+        ,
+        "--", // separator between script and arguments
+    });
     const output = run_step.addOutputFileArg(opts.out_name);
     for (opts.sources) |source| run_step.addFileArg(source);
 
