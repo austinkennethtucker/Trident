@@ -8,7 +8,7 @@ import Network
 class BrowserProxyRelay {
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "com.trident.proxy-relay", qos: .userInitiated)
-    private var connections: [ObjectIdentifier: RelayConnection] = []
+    private var connections: [ObjectIdentifier: RelayConnection] = [:]
 
     /// The upstream proxy URL (e.g., "http://127.0.0.1:8080").
     /// When nil, the relay connects directly to targets.
