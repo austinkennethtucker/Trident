@@ -10,7 +10,16 @@ class BrowserSocketServer {
     private var listenSource: DispatchSourceRead?
     private var clientSources: [Int32: DispatchSourceRead] = [:]
     private let queue = DispatchQueue(label: "com.trident.browser-socket", qos: .userInitiated)
+    /// When used with a tab manager, routes commands to the active tab.
+    weak var tabManager: BrowserTabManager?
+    /// Legacy: direct model reference for standalone (non-tabbed) usage.
     weak var model: BrowserPaneModel?
+
+    /// Resolves the active model: prefers tab manager's active model,
+    /// falls back to direct model reference.
+    private var activeModel: BrowserPaneModel? {
+        tabManager?.activeModel ?? model
+    }
 
     init(paneId: UUID) {
         self.paneId = paneId
@@ -204,7 +213,7 @@ class BrowserSocketServer {
             }
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
-                self?.model?.navigate(to: url)
+                self?.activeModel?.navigate(to: url)
                 sem.signal()
             }
             sem.wait()
@@ -213,7 +222,7 @@ class BrowserSocketServer {
         case "back":
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
-                self?.model?.goBack()
+                self?.activeModel?.goBack()
                 sem.signal()
             }
             sem.wait()
@@ -222,7 +231,7 @@ class BrowserSocketServer {
         case "forward":
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
-                self?.model?.goForward()
+                self?.activeModel?.goForward()
                 sem.signal()
             }
             sem.wait()
@@ -231,7 +240,7 @@ class BrowserSocketServer {
         case "reload":
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
-                self?.model?.reload()
+                self?.activeModel?.reload()
                 sem.signal()
             }
             sem.wait()
@@ -241,12 +250,17 @@ class BrowserSocketServer {
             var result: [String: Any] = [:]
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
+                let m = self?.activeModel
                 result = [
                     "ok": true,
-                    "url": self?.model?.urlString as Any,
-                    "title": self?.model?.pageTitle as Any,
-                    "loading": self?.model?.isLoading as Any,
+                    "url": m?.urlString as Any,
+                    "title": m?.pageTitle as Any,
+                    "loading": m?.isLoading as Any,
                 ]
+                if let mgr = self?.tabManager {
+                    result["tab_count"] = mgr.tabs.count
+                    result["active_tab"] = mgr.activeTabIndex
+                }
                 sem.signal()
             }
             sem.wait()
@@ -259,7 +273,7 @@ class BrowserSocketServer {
             let semaphore = DispatchSemaphore(value: 0)
             var result: Any? = nil
             var jsError: Error? = nil
-            model?.evaluateJavaScript(code) { r, e in
+            activeModel?.evaluateJavaScript(code) { r, e in
                 result = r
                 jsError = e
                 semaphore.signal()
@@ -275,7 +289,7 @@ class BrowserSocketServer {
         case "dom_snapshot":
             let semaphore = DispatchSemaphore(value: 0)
             var html: String = ""
-            model?.evaluateJavaScript("document.documentElement.outerHTML") { r, _ in
+            activeModel?.evaluateJavaScript("document.documentElement.outerHTML") { r, _ in
                 html = r as? String ?? ""
                 semaphore.signal()
             }
@@ -285,7 +299,7 @@ class BrowserSocketServer {
         case "screenshot":
             let semaphore = DispatchSemaphore(value: 0)
             var pngData: Data? = nil
-            model?.takeSnapshot { data in
+            activeModel?.takeSnapshot { data in
                 pngData = data
                 semaphore.signal()
             }
@@ -298,7 +312,7 @@ class BrowserSocketServer {
         case "cookies_get":
             let semaphore = DispatchSemaphore(value: 0)
             var cookieList: [[String: Any]] = []
-            model?.getCookies { cookies in
+            activeModel?.getCookies { cookies in
                 cookieList = cookies.map { cookie in
                     [
                         "name": cookie.name,
@@ -334,7 +348,7 @@ class BrowserSocketServer {
                 return ["ok": false, "error": "invalid cookie"]
             }
             let semaphore = DispatchSemaphore(value: 0)
-            model?.setCookie(cookie) { semaphore.signal() }
+            activeModel?.setCookie(cookie) { semaphore.signal() }
             semaphore.wait()
             return ["ok": true]
 
@@ -343,14 +357,14 @@ class BrowserSocketServer {
             var cookieList: [[String: Any]] = []
             var localStorage: String = "{}"
 
-            model?.getCookies { cookies in
+            activeModel?.getCookies { cookies in
                 cookieList = cookies.map { ["name": $0.name, "value": $0.value, "domain": $0.domain, "path": $0.path, "secure": $0.isSecure] }
                 semaphore.signal()
             }
             semaphore.wait()
 
             let semaphore2 = DispatchSemaphore(value: 0)
-            model?.evaluateJavaScript("JSON.stringify(localStorage)") { r, _ in
+            activeModel?.evaluateJavaScript("JSON.stringify(localStorage)") { r, _ in
                 localStorage = r as? String ?? "{}"
                 semaphore2.signal()
             }
@@ -378,7 +392,7 @@ class BrowserSocketServer {
                     }
                     if let cookie = HTTPCookie(properties: props) {
                         let sem = DispatchSemaphore(value: 0)
-                        model?.setCookie(cookie) { sem.signal() }
+                        activeModel?.setCookie(cookie) { sem.signal() }
                         sem.wait()
                     }
                 }
@@ -391,7 +405,7 @@ class BrowserSocketServer {
                     let js = "Object.entries(JSON.parse(\(jsonString))).forEach(([k,v])=>localStorage.setItem(k,v))"
                     let sem = DispatchSemaphore(value: 0)
                     var jsError: Error?
-                    model?.evaluateJavaScript(js) { _, err in
+                    activeModel?.evaluateJavaScript(js) { _, err in
                         jsError = err
                         sem.signal()
                     }
@@ -408,7 +422,7 @@ class BrowserSocketServer {
             var result: [String: Any] = [:]
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
-                if let chain = self?.model?.lastCertificateChain {
+                if let chain = self?.activeModel?.lastCertificateChain {
                     result = ["ok": true, "certificates": chain]
                 } else {
                     result = ["ok": true, "certificates": [] as [[String: Any]]]
@@ -422,7 +436,7 @@ class BrowserSocketServer {
             let url = command["url"] as? String
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
-                self?.model?.setProxy(url)
+                self?.activeModel?.setProxy(url)
                 sem.signal()
             }
             sem.wait()
@@ -431,7 +445,8 @@ class BrowserSocketServer {
         case "har_start":
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
-                self?.model?.startHARRecording()
+                let recorder = self?.tabManager?.harRecorder ?? self?.activeModel?.harRecorder
+                recorder?.start()
                 sem.signal()
             }
             sem.wait()
@@ -441,8 +456,9 @@ class BrowserSocketServer {
             var count = 0
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
-                self?.model?.stopHARRecording()
-                count = self?.model?.harRecorder.entryCount ?? 0
+                let recorder = self?.tabManager?.harRecorder ?? self?.activeModel?.harRecorder
+                recorder?.stop()
+                count = recorder?.entryCount ?? 0
                 sem.signal()
             }
             sem.wait()
@@ -452,11 +468,70 @@ class BrowserSocketServer {
             var harData: [String: Any] = [:]
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
-                harData = self?.model?.exportHAR() ?? [:]
+                let recorder = self?.tabManager?.harRecorder ?? self?.activeModel?.harRecorder
+                harData = recorder?.exportHAR() ?? [:]
                 sem.signal()
             }
             sem.wait()
             return ["ok": true, "har": harData]
+
+        // MARK: - Tab Management Commands
+
+        case "tab_new":
+            let url = command["url"] as? String
+            var index = 0
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                index = self?.tabManager?.addTab(url: url) ?? -1
+                sem.signal()
+            }
+            sem.wait()
+            return ["ok": true, "tab_index": index]
+
+        case "tab_close":
+            let tabIndex = command["index"] as? Int
+            var shouldClose = false
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                guard let mgr = self?.tabManager else { sem.signal(); return }
+                let idx = tabIndex ?? mgr.activeTabIndex
+                shouldClose = mgr.closeTab(at: idx)
+                sem.signal()
+            }
+            sem.wait()
+            return ["ok": true, "browser_closed": shouldClose]
+
+        case "tab_switch":
+            guard let index = command["index"] as? Int else {
+                return ["ok": false, "error": "missing 'index' parameter"]
+            }
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.tabManager?.selectTab(at: index)
+                sem.signal()
+            }
+            sem.wait()
+            return ["ok": true]
+
+        case "tab_list":
+            var tabList: [[String: Any]] = []
+            var activeIdx = 0
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { [weak self] in
+                guard let mgr = self?.tabManager else { sem.signal(); return }
+                activeIdx = mgr.activeTabIndex
+                tabList = mgr.tabs.enumerated().map { index, tab in
+                    [
+                        "index": index,
+                        "url": tab.model.urlString,
+                        "title": tab.model.pageTitle,
+                        "loading": tab.model.isLoading,
+                    ]
+                }
+                sem.signal()
+            }
+            sem.wait()
+            return ["ok": true, "tabs": tabList, "active_tab": activeIdx]
 
         default:
             return ["ok": false, "error": "unknown command"]

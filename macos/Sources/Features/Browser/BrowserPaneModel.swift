@@ -36,32 +36,45 @@ class BrowserPaneModel: NSObject, ObservableObject {
     /// Local proxy relay for routing traffic and HAR recording.
     private(set) var proxyRelay: BrowserProxyRelay?
 
+    /// Whether this model owns its proxy relay (and should stop it on deinit).
+    private let ownsRelay: Bool
+
     /// HAR recorder for capturing HTTP request/response metadata.
-    let harRecorder = BrowserHARRecorder()
+    let harRecorder: BrowserHARRecorder
 
     /// The WKWebView instance. Created lazily on first access so the proxy
     /// relay is guaranteed to be running before the web view configures its
     /// proxy settings.
     private(set) lazy var webView: WKWebView = createWebView()
 
-    init(proxyURL: String? = nil, proxyCertPath: String? = nil, tlsStrict: Bool = true) {
-        self.proxyURL = proxyURL
-        self.proxyCertPath = proxyCertPath
-        self.tlsStrict = tlsStrict
-        super.init()
+    /// Creates a standalone model that owns its own proxy relay, socket server,
+    /// and HAR recorder. Used when the browser pane has no tab manager.
+    convenience init(proxyURL: String? = nil, proxyCertPath: String? = nil, tlsStrict: Bool = true) {
+        let recorder = BrowserHARRecorder()
 
-        // Start local proxy relay
-        let relay = BrowserProxyRelay()
-        relay.upstreamProxy = proxyURL
-        relay.harRecorder = harRecorder
+        // Start a local proxy relay
+        var relay: BrowserProxyRelay? = nil
+        let r = BrowserProxyRelay()
+        r.upstreamProxy = proxyURL
+        r.harRecorder = recorder
         do {
-            try relay.start()
-            self.proxyRelay = relay
-            print("[BrowserPane] Proxy relay started on port \(relay.localPort)")
+            try r.start()
+            relay = r
+            print("[BrowserPane] Proxy relay started on port \(r.localPort)")
         } catch {
             print("[BrowserPane] Proxy relay failed to start: \(error)")
         }
 
+        self.init(
+            proxyURL: proxyURL,
+            proxyCertPath: proxyCertPath,
+            tlsStrict: tlsStrict,
+            sharedRelay: relay,
+            ownsRelay: true,
+            harRecorder: recorder
+        )
+
+        // Standalone models also own a socket server
         let server = BrowserSocketServer(paneId: id)
         server.model = self
         do {
@@ -73,9 +86,30 @@ class BrowserPaneModel: NSObject, ObservableObject {
         }
     }
 
+    /// Creates a model with shared (externally-owned) infrastructure.
+    /// Used by BrowserTabManager to create per-tab models.
+    init(
+        proxyURL: String? = nil,
+        proxyCertPath: String? = nil,
+        tlsStrict: Bool = true,
+        sharedRelay: BrowserProxyRelay?,
+        ownsRelay: Bool,
+        harRecorder: BrowserHARRecorder
+    ) {
+        self.proxyURL = proxyURL
+        self.proxyCertPath = proxyCertPath
+        self.tlsStrict = tlsStrict
+        self.proxyRelay = sharedRelay
+        self.ownsRelay = ownsRelay
+        self.harRecorder = harRecorder
+        super.init()
+    }
+
     deinit {
-        socketServer?.stop()
-        proxyRelay?.stop()
+        if ownsRelay {
+            socketServer?.stop()
+            proxyRelay?.stop()
+        }
         observations.forEach { $0.invalidate() }
         observations.removeAll()
     }
