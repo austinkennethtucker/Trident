@@ -3,6 +3,7 @@ import SwiftUI
 /// Complete browser pane view with address bar and web content.
 struct BrowserPaneView: View {
     @ObservedObject var model: BrowserPaneModel
+    var onBrowserFocused: (() -> Void)?
     @State private var jsInput: String = ""
 
     var body: some View {
@@ -72,7 +73,7 @@ struct BrowserPaneView: View {
             }
 
             // Web content
-            BrowserWebView(model: model)
+            BrowserWebView(model: model, onBrowserFocused: onBrowserFocused)
 
             // JS Console panel
             if model.jsConsoleVisible {
