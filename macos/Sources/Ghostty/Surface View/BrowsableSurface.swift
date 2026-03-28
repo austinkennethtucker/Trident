@@ -28,7 +28,7 @@ extension Ghostty {
                         surfaceView: surfaceView,
                         isSplit: isSplit
                     )
-                } else {
+                } else if let tabManager = surfaceView.browserTabManager {
                     SplitView(
                         .horizontal,
                         $browserSplit,
@@ -41,8 +41,7 @@ extension Ghostty {
                         },
                         right: {
                             BrowserPaneView(
-                                model: surfaceView.browserModel
-                                    ?? BrowserPaneModel(),
+                                tabManager: tabManager,
                                 onBrowserFocused: { [weak surfaceView] in
                                     surfaceView?.focusDidChange(false)
                                 }
@@ -61,13 +60,17 @@ extension Ghostty {
         }
 
         private func onToggleBrowser() {
-            // Ensure model exists before showing, with config from ghostty
-            if surfaceView.browserModel == nil {
-                surfaceView.browserModel = BrowserPaneModel(
+            // Ensure tab manager exists before showing, with config from ghostty
+            if surfaceView.browserTabManager == nil {
+                let manager = BrowserTabManager(
                     proxyURL: ghostty.config.browserProxy,
                     proxyCertPath: ghostty.config.browserProxyCert,
                     tlsStrict: ghostty.config.browserTlsStrict
                 )
+                manager.onLastTabClosed = { [weak surfaceView] in
+                    surfaceView?.browserVisible = false
+                }
+                surfaceView.browserTabManager = manager
             }
             surfaceView.browserVisible.toggle()
         }

@@ -207,8 +207,8 @@ extension Ghostty {
         // True if the browser pane should be visible beside this surface
         @Published var browserVisible: Bool = false
 
-        // Model for the browser pane (lazy-created on first toggle)
-        var browserModel: BrowserPaneModel?
+        // Tab manager for the browser pane (lazy-created on first toggle)
+        var browserTabManager: BrowserTabManager?
 
         /// Returns the data model for this surface.
         ///
