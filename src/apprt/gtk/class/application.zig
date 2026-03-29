@@ -790,6 +790,20 @@ pub const Application = extern struct {
                 if (priv.popup_manager) |*pm| return pm.hide(value.name);
                 return false;
             },
+            .toggle_browser => {
+                switch (target) {
+                    .app => return false,
+                    .surface => |core_surface| {
+                        const surface = core_surface.rt_surface.surface;
+                        const tree = ext.getAncestor(
+                            SplitTree,
+                            surface.as(gtk.Widget),
+                        ) orelse return false;
+                        tree.toggleBrowser();
+                        return true;
+                    },
+                }
+            },
             .toggle_tab_overview => return Action.toggleTabOverview(target),
             .toggle_window_decorations => return Action.toggleWindowDecorations(target),
             .toggle_command_palette => return Action.toggleCommandPalette(target),

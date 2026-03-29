@@ -18,6 +18,7 @@ const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseCo
 const PaneTabBar = @import("pane_tab_bar.zig").PaneTabBar;
 const Surface = @import("surface.zig").Surface;
 const SurfaceScrolledWindow = @import("surface_scrolled_window.zig").SurfaceScrolledWindow;
+const BrowserWidget = @import("../class.zig").BrowserWidget;
 
 const log = std.log.scoped(.gtk_ghostty_split_tree);
 
@@ -228,6 +229,11 @@ pub const SplitTree = extern struct {
 
         /// Pane tab groups keyed by the active surface in the tree.
         pane_tab_groups: std.AutoHashMapUnmanaged(*Surface, *PaneTabState) = .empty,
+
+        /// The browser widget shown beside terminal panes, if any.
+        browser_widget: if (BrowserWidget != void) ?*BrowserWidget else void =
+            if (BrowserWidget != void) null else {},
+        browser_paned: ?*gtk.Paned = null,
 
         pub var offset: c_int = 0;
     };
@@ -448,6 +454,64 @@ pub const SplitTree = extern struct {
         }
 
         return true;
+    }
+
+    pub fn toggleBrowser(self: *Self) void {
+        if (BrowserWidget == void) return;
+
+        const priv = self.private();
+
+        if (priv.browser_widget) |bw| {
+            // Browser is visible — destroy it.
+            const paned = priv.browser_paned orelse return;
+            const paned_widget = paned.as(gtk.Widget);
+
+            // Get the terminal side (start child) and keep a ref.
+            const terminal_child = paned.getStartChild() orelse return;
+            _ = terminal_child.ref();
+            defer terminal_child.unref();
+
+            // Detach terminal from paned.
+            paned.setStartChild(null);
+
+            // Put the terminal back as the tree_bin child (replaces the paned).
+            priv.tree_bin.as(adw.Bin).setChild(terminal_child);
+
+            // Clean up the browser widget.
+            _ = bw.as(gtk.Widget).ref();
+            paned_widget.unparent();
+            bw.as(gtk.Widget).unref();
+
+            priv.browser_widget = null;
+            priv.browser_paned = null;
+        } else {
+            // Browser is not visible — create it.
+            const bw: *BrowserWidget = gobject.ext.newInstance(BrowserWidget, .{});
+            const bw_widget = bw.as(gtk.Widget);
+
+            // Get the current tree_bin child (terminal side) and keep a ref.
+            const current_child = priv.tree_bin.as(adw.Bin).getChild() orelse {
+                bw_widget.unref();
+                return;
+            };
+            _ = current_child.ref();
+            defer current_child.unref();
+
+            // Remove current child from tree_bin.
+            priv.tree_bin.as(adw.Bin).setChild(null);
+
+            // Create a horizontal paned with terminal on the left, browser on the right.
+            const paned: *gtk.Paned = .new(.horizontal);
+            paned.setStartChild(current_child);
+            paned.setEndChild(bw_widget);
+            paned.setPosition(400);
+
+            // Set the paned as the tree_bin child.
+            priv.tree_bin.as(adw.Bin).setChild(paned.as(gtk.Widget));
+
+            priv.browser_widget = bw;
+            priv.browser_paned = paned;
+        }
     }
 
     pub fn newPaneTab(self: *Self, parent: *Surface) Allocator.Error!void {
