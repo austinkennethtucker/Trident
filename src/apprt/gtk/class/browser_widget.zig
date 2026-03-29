@@ -408,6 +408,17 @@ pub const BrowserWidget = extern struct {
             log.err("failed to start BrowserSocket: {}", .{err});
         };
         priv.socket_server = srv;
+
+        // TLS configuration
+        if (!priv.tls_strict) {
+            if (priv.web_view) |wv| {
+                const session = c.webkit_web_view_get_network_session(@ptrCast(wv));
+                if (session != null) {
+                    c.webkit_network_session_set_tls_errors_policy(session, 1); // WEBKIT_TLS_ERRORS_POLICY_IGNORE = 1
+                }
+            }
+            log.warn("TLS validation disabled for browser pane", .{});
+        }
     }
 
     /// Generate a random 8-byte hex pane identifier.
