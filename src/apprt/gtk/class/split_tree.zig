@@ -489,6 +489,19 @@ pub const SplitTree = extern struct {
             const bw: *BrowserWidget = gobject.ext.newInstance(BrowserWidget, .{});
             const bw_widget = bw.as(gtk.Widget);
 
+            // Apply browser config (proxy, TLS) before the widget starts rendering.
+            {
+                const app = Application.default();
+                const config_obj = app.getConfig();
+                defer config_obj.unref();
+                const config = config_obj.get();
+                bw.configure(
+                    if (config.@"browser-proxy") |u| u.ptr else null,
+                    if (config.@"browser-proxy-cert") |p| p.ptr else null,
+                    config.@"browser-tls-strict",
+                );
+            }
+
             // Get the current tree_bin child (terminal side) and keep a ref.
             const current_child = priv.tree_bin.as(adw.Bin).getChild() orelse {
                 bw_widget.unref();

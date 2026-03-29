@@ -317,6 +317,15 @@ pub const BrowserWidget = extern struct {
         }
     }
 
+    /// Set proxy and TLS config before the widget starts rendering.
+    /// Must be called before the widget is realized (i.e. right after creation).
+    pub fn configure(self: *Self, proxy_url: ?[*:0]const u8, proxy_cert_path: ?[*:0]const u8, tls_strict: bool) void {
+        const priv = self.private();
+        priv.proxy_url = proxy_url;
+        priv.proxy_cert_path = proxy_cert_path;
+        priv.tls_strict = tls_strict;
+    }
+
     /// Show or hide the JS console panel at the bottom of the widget.
     pub fn toggleConsole(self: *Self) void {
         const priv = self.private();
