@@ -7,19 +7,18 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private let pluginBundle = Bundle(for: DockTilePlugin.self)
 
-    // Separate defaults based on debug vs release builds so we can test icons
-    // without messing up releases.
-    #if DEBUG
-    private let ghosttyUserDefaults = UserDefaults(suiteName: "com.mitchellh.ghostty.debug")
-    #else
-    private let ghosttyUserDefaults = UserDefaults(suiteName: "com.mitchellh.ghostty")
-    #endif
-
     private var iconChangeObserver: Any?
 
     /// The URL to the enclosing app bundle, determined from the plugin bundle path.
     var ghosttyAppURL: URL? {
         Self.appBundleURL(for: pluginBundle.bundleURL)
+    }
+
+    private var ghosttyUserDefaults: UserDefaults? {
+        ghosttyAppURL
+            .flatMap(Bundle.init(url:))
+            .flatMap(\.bundleIdentifier)
+            .flatMap(UserDefaults.init(suiteName:))
     }
 
     /// Determine the enclosing app bundle for the dock tile plugin bundle.

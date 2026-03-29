@@ -165,7 +165,8 @@ class AppDelegate: NSObject,
     private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
 
     override init() {
-        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
+        let configPath = Ghostty.configureRuntimeEnvironment()
+        ghostty = Ghostty.App(configPath: configPath)
         super.init()
 
         ghostty.delegate = self

@@ -1,3 +1,4 @@
+import Foundation
 import os
 import SwiftUI
 import GhosttyKit
@@ -12,11 +13,39 @@ extension ghostty_command_s: @unchecked @retroactive Sendable {}
 extension ghostty_surface_t: @unchecked @retroactive Sendable {}
 
 extension Ghostty {
+    static var bundleIdentifier: String {
+        Bundle.main.bundleIdentifier ?? "com.subdepthtech.trident"
+    }
+
+    static func scopedIdentifier(_ suffix: String) -> String {
+        "\(bundleIdentifier).\(suffix)"
+    }
+
+    static var surfaceTypeIdentifier: String {
+        scopedIdentifier("surface-id")
+    }
+
+    static var preferredConfigPath: String {
+        let folder = bundleIdentifier.hasSuffix(".dev") ? "trident-dev" : "trident"
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent(folder, isDirectory: true)
+            .appendingPathComponent("config", isDirectory: false)
+            .path
+    }
+
+    @discardableResult
+    static func configureRuntimeEnvironment() -> String {
+        let configPath = ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"] ?? preferredConfigPath
+        setenv("GHOSTTY_CONFIG_PATH", configPath, 0)
+        return configPath
+    }
+
     // The user notification category identifier
-    static let userNotificationCategory = "com.mitchellh.ghostty.userNotification"
+    static let userNotificationCategory = scopedIdentifier("userNotification")
 
     // The user notification "Show" action
-    static let userNotificationActionShow = "com.mitchellh.ghostty.userNotification.Show"
+    static let userNotificationActionShow = scopedIdentifier("userNotification.Show")
 }
 
 // MARK: Build Info
@@ -331,132 +360,132 @@ extension Ghostty {
 
 extension Notification.Name {
     /// Configuration change. If the object is nil then it is app-wide. Otherwise its surface-specific.
-    static let ghosttyConfigDidChange = Notification.Name("com.mitchellh.ghostty.configDidChange")
+    static let ghosttyConfigDidChange = Notification.Name(Ghostty.scopedIdentifier("configDidChange"))
     static let GhosttyConfigChangeKey = ghosttyConfigDidChange.rawValue
 
     /// Color change. Object is the surface changing.
-    static let ghosttyColorDidChange = Notification.Name("com.mitchellh.ghostty.ghosttyColorDidChange")
+    static let ghosttyColorDidChange = Notification.Name(Ghostty.scopedIdentifier("ghosttyColorDidChange"))
     static let GhosttyColorChangeKey = ghosttyColorDidChange.rawValue
 
     /// Goto tab. Has tab index in the userinfo.
-    static let ghosttyMoveTab = Notification.Name("com.mitchellh.ghostty.moveTab")
+    static let ghosttyMoveTab = Notification.Name(Ghostty.scopedIdentifier("moveTab"))
     static let GhosttyMoveTabKey = ghosttyMoveTab.rawValue
 
     /// Close tab
-    static let ghosttyCloseTab = Notification.Name("com.mitchellh.ghostty.closeTab")
+    static let ghosttyCloseTab = Notification.Name(Ghostty.scopedIdentifier("closeTab"))
 
     /// Close other tabs
-    static let ghosttyCloseOtherTabs = Notification.Name("com.mitchellh.ghostty.closeOtherTabs")
+    static let ghosttyCloseOtherTabs = Notification.Name(Ghostty.scopedIdentifier("closeOtherTabs"))
 
     /// Close tabs to the right of the focused tab
-    static let ghosttyCloseTabsOnTheRight = Notification.Name("com.mitchellh.ghostty.closeTabsOnTheRight")
+    static let ghosttyCloseTabsOnTheRight = Notification.Name(Ghostty.scopedIdentifier("closeTabsOnTheRight"))
 
     /// Close window
-    static let ghosttyCloseWindow = Notification.Name("com.mitchellh.ghostty.closeWindow")
+    static let ghosttyCloseWindow = Notification.Name(Ghostty.scopedIdentifier("closeWindow"))
 
     /// Resize the window to a default size.
-    static let ghosttyResetWindowSize = Notification.Name("com.mitchellh.ghostty.resetWindowSize")
+    static let ghosttyResetWindowSize = Notification.Name(Ghostty.scopedIdentifier("resetWindowSize"))
 
     /// Ring the bell
-    static let ghosttyBellDidRing = Notification.Name("com.mitchellh.ghostty.ghosttyBellDidRing")
+    static let ghosttyBellDidRing = Notification.Name(Ghostty.scopedIdentifier("ghosttyBellDidRing"))
 
     /// Readonly mode changed
-    static let ghosttyDidChangeReadonly = Notification.Name("com.mitchellh.ghostty.didChangeReadonly")
+    static let ghosttyDidChangeReadonly = Notification.Name(Ghostty.scopedIdentifier("didChangeReadonly"))
     static let ReadonlyKey = ghosttyDidChangeReadonly.rawValue + ".readonly"
-    static let ghosttyCommandPaletteDidToggle = Notification.Name("com.mitchellh.ghostty.commandPaletteDidToggle")
+    static let ghosttyCommandPaletteDidToggle = Notification.Name(Ghostty.scopedIdentifier("commandPaletteDidToggle"))
 
     /// Toggle maximize of current window
-    static let ghosttyMaximizeDidToggle = Notification.Name("com.mitchellh.ghostty.maximizeDidToggle")
+    static let ghosttyMaximizeDidToggle = Notification.Name(Ghostty.scopedIdentifier("maximizeDidToggle"))
 
     /// Notification sent when scrollbar updates
-    static let ghosttyDidUpdateScrollbar = Notification.Name("com.mitchellh.ghostty.didUpdateScrollbar")
+    static let ghosttyDidUpdateScrollbar = Notification.Name(Ghostty.scopedIdentifier("didUpdateScrollbar"))
     static let ScrollbarKey = ghosttyDidUpdateScrollbar.rawValue + ".scrollbar"
 
     /// Focus the search field
-    static let ghosttySearchFocus = Notification.Name("com.mitchellh.ghostty.searchFocus")
+    static let ghosttySearchFocus = Notification.Name(Ghostty.scopedIdentifier("searchFocus"))
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This
 // namespace was the old namespace.
 extension Ghostty.Notification {
     /// Used to pass a configuration along when creating a new tab/window/split.
-    static let NewSurfaceConfigKey = "com.mitchellh.ghostty.newSurfaceConfig"
+    static let NewSurfaceConfigKey = Ghostty.scopedIdentifier("newSurfaceConfig")
 
     /// Posted when a new split is requested. The sending object will be the surface that had focus. The
     /// userdata has one key "direction" with the direction to split to.
-    static let ghosttyNewSplit = Notification.Name("com.mitchellh.ghostty.newSplit")
+    static let ghosttyNewSplit = Notification.Name(Ghostty.scopedIdentifier("newSplit"))
 
     /// Close the calling surface.
-    static let ghosttyCloseSurface = Notification.Name("com.mitchellh.ghostty.closeSurface")
+    static let ghosttyCloseSurface = Notification.Name(Ghostty.scopedIdentifier("closeSurface"))
 
     /// Focus previous/next split. Has a SplitFocusDirection in the userinfo.
-    static let ghosttyFocusSplit = Notification.Name("com.mitchellh.ghostty.focusSplit")
+    static let ghosttyFocusSplit = Notification.Name(Ghostty.scopedIdentifier("focusSplit"))
     static let SplitDirectionKey = ghosttyFocusSplit.rawValue
 
     /// Goto tab. Has tab index in the userinfo.
-    static let ghosttyGotoTab = Notification.Name("com.mitchellh.ghostty.gotoTab")
+    static let ghosttyGotoTab = Notification.Name(Ghostty.scopedIdentifier("gotoTab"))
     static let GotoTabKey = ghosttyGotoTab.rawValue
 
     /// New tab. Has base surface config requested in userinfo.
-    static let ghosttyNewTab = Notification.Name("com.mitchellh.ghostty.newTab")
+    static let ghosttyNewTab = Notification.Name(Ghostty.scopedIdentifier("newTab"))
 
     /// New window. Has base surface config requested in userinfo.
-    static let ghosttyNewWindow = Notification.Name("com.mitchellh.ghostty.newWindow")
+    static let ghosttyNewWindow = Notification.Name(Ghostty.scopedIdentifier("newWindow"))
 
     /// Present terminal. Bring the surface's window to focus without activating the app.
-    static let ghosttyPresentTerminal = Notification.Name("com.mitchellh.ghostty.presentTerminal")
+    static let ghosttyPresentTerminal = Notification.Name(Ghostty.scopedIdentifier("presentTerminal"))
 
     /// Toggle fullscreen of current window
-    static let ghosttyToggleFullscreen = Notification.Name("com.mitchellh.ghostty.toggleFullscreen")
+    static let ghosttyToggleFullscreen = Notification.Name(Ghostty.scopedIdentifier("toggleFullscreen"))
     static let FullscreenModeKey = ghosttyToggleFullscreen.rawValue
 
     /// Notification sent to toggle split maximize/unmaximize.
-    static let didToggleSplitZoom = Notification.Name("com.mitchellh.ghostty.didToggleSplitZoom")
+    static let didToggleSplitZoom = Notification.Name(Ghostty.scopedIdentifier("didToggleSplitZoom"))
 
     /// Notification
-    static let didReceiveInitialWindowFrame = Notification.Name("com.mitchellh.ghostty.didReceiveInitialWindowFrame")
-    static let FrameKey = "com.mitchellh.ghostty.frame"
+    static let didReceiveInitialWindowFrame = Notification.Name(Ghostty.scopedIdentifier("didReceiveInitialWindowFrame"))
+    static let FrameKey = Ghostty.scopedIdentifier("frame")
 
     /// Notification to render the inspector for a surface
-    static let inspectorNeedsDisplay = Notification.Name("com.mitchellh.ghostty.inspectorNeedsDisplay")
+    static let inspectorNeedsDisplay = Notification.Name(Ghostty.scopedIdentifier("inspectorNeedsDisplay"))
 
     /// Notification to show/hide the inspector
-    static let didControlInspector = Notification.Name("com.mitchellh.ghostty.didControlInspector")
+    static let didControlInspector = Notification.Name(Ghostty.scopedIdentifier("didControlInspector"))
 
     /// Notification to toggle the browser pane
-    static let didToggleBrowser = Notification.Name("com.mitchellh.ghostty.didToggleBrowser")
+    static let didToggleBrowser = Notification.Name(Ghostty.scopedIdentifier("didToggleBrowser"))
 
-    static let confirmClipboard = Notification.Name("com.mitchellh.ghostty.confirmClipboard")
+    static let confirmClipboard = Notification.Name(Ghostty.scopedIdentifier("confirmClipboard"))
     static let ConfirmClipboardStrKey = confirmClipboard.rawValue + ".str"
     static let ConfirmClipboardStateKey = confirmClipboard.rawValue + ".state"
     static let ConfirmClipboardRequestKey = confirmClipboard.rawValue + ".request"
 
     /// Notification sent to the active split view to resize the split.
-    static let didResizeSplit = Notification.Name("com.mitchellh.ghostty.didResizeSplit")
+    static let didResizeSplit = Notification.Name(Ghostty.scopedIdentifier("didResizeSplit"))
     static let ResizeSplitDirectionKey = didResizeSplit.rawValue + ".direction"
     static let ResizeSplitAmountKey = didResizeSplit.rawValue + ".amount"
 
     /// Notification sent to the split root to equalize split sizes
-    static let didEqualizeSplits = Notification.Name("com.mitchellh.ghostty.didEqualizeSplits")
+    static let didEqualizeSplits = Notification.Name(Ghostty.scopedIdentifier("didEqualizeSplits"))
 
     /// Notification that renderer health changed
-    static let didUpdateRendererHealth = Notification.Name("com.mitchellh.ghostty.didUpdateRendererHealth")
+    static let didUpdateRendererHealth = Notification.Name(Ghostty.scopedIdentifier("didUpdateRendererHealth"))
 
     /// Notifications related to key sequences
-    static let didContinueKeySequence = Notification.Name("com.mitchellh.ghostty.didContinueKeySequence")
-    static let didEndKeySequence = Notification.Name("com.mitchellh.ghostty.didEndKeySequence")
+    static let didContinueKeySequence = Notification.Name(Ghostty.scopedIdentifier("didContinueKeySequence"))
+    static let didEndKeySequence = Notification.Name(Ghostty.scopedIdentifier("didEndKeySequence"))
     static let KeySequenceKey = didContinueKeySequence.rawValue + ".key"
 
     /// Notifications related to key tables
-    static let didChangeKeyTable = Notification.Name("com.mitchellh.ghostty.didChangeKeyTable")
+    static let didChangeKeyTable = Notification.Name(Ghostty.scopedIdentifier("didChangeKeyTable"))
     static let KeyTableKey = didChangeKeyTable.rawValue + ".action"
 
     /// Pane tab actions
-    static let ghosttyNewPaneTab = Notification.Name("com.mitchellh.ghostty.newPaneTab")
-    static let ghosttyClosePaneTab = Notification.Name("com.mitchellh.ghostty.closePaneTab")
-    static let ghosttyGotoPaneTabPrev = Notification.Name("com.mitchellh.ghostty.gotoPaneTabPrev")
-    static let ghosttyGotoPaneTabNext = Notification.Name("com.mitchellh.ghostty.gotoPaneTabNext")
-    static let ghosttyGotoPaneTab = Notification.Name("com.mitchellh.ghostty.gotoPaneTab")
+    static let ghosttyNewPaneTab = Notification.Name(Ghostty.scopedIdentifier("newPaneTab"))
+    static let ghosttyClosePaneTab = Notification.Name(Ghostty.scopedIdentifier("closePaneTab"))
+    static let ghosttyGotoPaneTabPrev = Notification.Name(Ghostty.scopedIdentifier("gotoPaneTabPrev"))
+    static let ghosttyGotoPaneTabNext = Notification.Name(Ghostty.scopedIdentifier("gotoPaneTabNext"))
+    static let ghosttyGotoPaneTab = Notification.Name(Ghostty.scopedIdentifier("gotoPaneTab"))
 }
 
 // Make the input enum hashable.

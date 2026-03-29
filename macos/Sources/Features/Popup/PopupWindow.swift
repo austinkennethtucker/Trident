@@ -31,7 +31,7 @@ class PopupWindow: NSPanel {
         // Accessibility: give the window a unique identifier and the correct
         // floating-window subrole so tools like AeroSpace can handle it.
         identifier = NSUserInterfaceItemIdentifier(
-            "com.mitchellh.ghostty.popup.\(profileName)"
+            Ghostty.scopedIdentifier("popup.\(profileName)")
         )
         setAccessibilitySubrole(.floatingWindow)
 

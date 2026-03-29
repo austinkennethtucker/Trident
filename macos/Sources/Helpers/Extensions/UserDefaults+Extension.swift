@@ -2,11 +2,7 @@ import Foundation
 
 extension UserDefaults {
     static var ghosttySuite: String? {
-        #if DEBUG
-        ProcessInfo.processInfo.environment["GHOSTTY_USER_DEFAULTS_SUITE"]
-        #else
-        nil
-        #endif
+        ProcessInfo.processInfo.environment["GHOSTTY_USER_DEFAULTS_SUITE"] ?? Bundle.main.bundleIdentifier
     }
 
     static var ghostty: UserDefaults {
