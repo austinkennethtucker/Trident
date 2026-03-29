@@ -585,6 +585,9 @@ fn addGtkNg(
 
     step.linkSystemLibrary2("gtk4", dynamic_link_opts);
     step.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
+    if (self.config.@"enable-browser") {
+        step.linkSystemLibrary2("webkitgtk-6.0", dynamic_link_opts);
+    }
 
     if (self.config.x11) {
         step.linkSystemLibrary2("X11", dynamic_link_opts);
