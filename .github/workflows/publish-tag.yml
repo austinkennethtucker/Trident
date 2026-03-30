@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   setup:
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.extract_version.outputs.version }}
     steps:
@@ -37,7 +37,7 @@ jobs:
 
   upload:
     needs: [setup]
-    runs-on: namespace-profile-ghostty-sm
+    runs-on: ubuntu-latest
     env:
       GHOSTTY_VERSION: ${{ needs.setup.outputs.version }}
     steps:
