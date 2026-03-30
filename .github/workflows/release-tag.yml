@@ -98,7 +98,18 @@ jobs:
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz .
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz ghostty-source.tar.gz
 
+      - name: Check Minisign Secrets
+        id: minisign
+        run: |
+          if [ -n "${{ secrets.MINISIGN_KEY }}" ] && [ -n "${{ secrets.MINISIGN_PASSWORD }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::MINISIGN_KEY or MINISIGN_PASSWORD is not configured; skipping signed release source tarballs."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sign Tarball
+        if: steps.minisign.outputs.available == 'true'
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
           echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
@@ -109,6 +120,7 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: source-tarball
+          if-no-files-found: ignore
           path: |-
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz.minisig
@@ -371,12 +383,13 @@ jobs:
         with:
           name: Trident v${{ env.GHOSTTY_VERSION }}
           tag_name: v${{ env.GHOSTTY_VERSION }}
+          fail_on_unmatched_files: false
           files: |
             ghostty-source.tar.gz
             ghostty-source.tar.gz.minisig
             Trident.dmg
             trident-macos-universal.zip
-          token: ${{ secrets.GH_RELEASE_TOKEN }}
+          token: ${{ github.token }}
 
       # Upload all of our files EXCEPT the appcast. The appcast triggers
       # updates in clients and we don't want to do that until we're

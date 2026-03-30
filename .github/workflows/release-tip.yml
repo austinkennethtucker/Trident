@@ -25,10 +25,7 @@ jobs:
   setup:
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (
-        github.repository_owner == 'ghostty-org' &&
-        github.ref_name == 'main'
-      )
+      github.ref_name == 'main'
     runs-on: ubuntu-latest
     outputs:
       should_skip: ${{ steps.check.outputs.should_skip }}
@@ -165,10 +162,7 @@ jobs:
       needs.setup.outputs.should_skip != 'true' &&
       (
         github.event_name == 'workflow_dispatch' ||
-        (
-          github.repository_owner == 'ghostty-org' &&
-          github.ref_name == 'main'
-        )
+        github.ref_name == 'main'
       )
     runs-on: ubuntu-latest
     env:
@@ -217,7 +211,7 @@ jobs:
           files: |
             ghostty-source.tar.gz
             ghostty-source.tar.gz.minisig
-          token: ${{ secrets.GH_RELEASE_TOKEN }}
+          token: ${{ github.token }}
 
   build-macos:
     needs: [setup]
@@ -225,10 +219,7 @@ jobs:
       needs.setup.outputs.should_skip != 'true' &&
       (
         github.event_name == 'workflow_dispatch' ||
-        (
-          github.repository_owner == 'ghostty-org' &&
-          github.ref_name == 'main'
-        )
+        github.ref_name == 'main'
       )
 
     runs-on: macos-latest
@@ -397,7 +388,7 @@ jobs:
           files: |
             trident-dev-macos-universal.zip
             Trident-Dev.dmg
-          token: ${{ secrets.GH_RELEASE_TOKEN }}
+          token: ${{ github.token }}
 
       # Create our appcast for Sparkle
       - name: Generate Appcast
@@ -484,10 +475,7 @@ jobs:
       needs.setup.outputs.should_skip != 'true' &&
       (
         github.event_name == 'workflow_dispatch' ||
-        (
-          github.repository_owner == 'ghostty-org' &&
-          github.ref_name == 'main'
-        )
+        github.ref_name == 'main'
       )
 
     runs-on: macos-latest
@@ -638,7 +626,7 @@ jobs:
           tag_name: tip
           target_commitish: ${{ github.sha }}
           files: ghostty-macos-universal-debug-slow.zip
-          token: ${{ secrets.GH_RELEASE_TOKEN }}
+          token: ${{ github.token }}
 
       # Update Blob Storage
       - name: Prep R2 Storage
@@ -672,10 +660,7 @@ jobs:
       needs.setup.outputs.should_skip != 'true' &&
       (
         github.event_name == 'workflow_dispatch' ||
-        (
-          github.repository_owner == 'ghostty-org' &&
-          github.ref_name == 'main'
-        )
+        github.ref_name == 'main'
       )
 
     runs-on: macos-latest
@@ -826,7 +811,7 @@ jobs:
           tag_name: tip
           target_commitish: ${{ github.sha }}
           files: ghostty-macos-universal-debug-fast.zip
-          token: ${{ secrets.GH_RELEASE_TOKEN }}
+          token: ${{ github.token }}
 
       # Update Blob Storage
       - name: Prep R2 Storage
