@@ -508,7 +508,8 @@ extension Ghostty {
         @ViewBuilder
         private var matchCountLabel: some View {
             if let selected = searchState.selected {
-                Text("\(selected + 1)/\(searchState.total, default: "?")")
+                let totalText = searchState.total.map(String.init) ?? "?"
+                Text("\(selected + 1)/\(totalText)")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .monospacedDigit()
