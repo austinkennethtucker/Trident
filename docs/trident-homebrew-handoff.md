@@ -1,6 +1,6 @@
 # Trident Homebrew + macOS Packaging Handoff
 
-Last updated: 2026-03-30
+Last updated: 2026-03-30 (signing/CI fixes applied)
 
 This note is for the next agent who works on Trident's private Homebrew install path, release packaging, and macOS app launch behavior.
 
@@ -90,40 +90,50 @@ Remaining note:
 - Search providers may still be confused if stale Trident copies remain in Trash or elsewhere.
 - It is worth cleaning up old copies and then retesting Spotlight/Raycast.
 
-### 3. macOS still reports a signing / trust problem
+### 3. macOS signing / trust problem — ROOT CAUSE FOUND
 
-This is the biggest remaining packaging issue.
+**Status: Root cause identified and fixed (2026-03-30).**
 
-Observed behavior:
+Root cause:
 
-- The apps are installed in `/Applications`.
-- `open /Applications/Trident.app` and `open /Applications/Trident\ Dev.app` can succeed.
-- `open -b com.subdepthtech.trident` and `open -b com.subdepthtech.trident.dev` can succeed.
-- But trust checks still complain:
+- The release assets on GitHub were built locally, not by CI.
+- `macos/build.nu` defaults to `--configuration Debug`, so the Zig library was compiled in Debug mode.
+- The app was ad-hoc signed (no Developer ID certificate), causing `codesign --verify` and `spctl` failures.
+- The app also showed a "You're running a debug build of Trident!" warning banner.
 
-```sh
-codesign --verify --deep --strict --verbose=2 /Applications/Trident.app
-codesign --verify --deep --strict --verbose=2 /Applications/Trident\ Dev.app
-spctl -a -vv /Applications/Trident.app
-spctl -a -vv /Applications/Trident\ Dev.app
-```
+Why CI never ran:
 
-Typical result:
+- `ci.yml` failed because `zig` was not installed on GitHub-hosted runners (no `setup-zig` step).
+- `release-tip.yml` had 8 `ghostty-org` owner guards that blocked all jobs on `austinkennethtucker/Trident`.
+- `release-tag.yml` was never triggered.
+- No signing/notarization secrets were configured in the repo.
 
-- `invalid Info.plist (plist or signature have been modified)`
+Fix applied:
 
-Important detail:
+- Rebuilt stable app locally with `macos/install.nu` (defaults to Release + ReleaseFast + Developer ID signing).
+- `codesign --verify --deep --strict` now passes.
+- `spctl` reports "Unnotarized Developer ID" (signing correct, notarization pending).
+- Added `mlugg/setup-zig@v2` to `ci.yml`.
+- Simplified `release-tip.yml` (removed owner guards, removed upstream-only jobs).
+- Simplified `release-tag.yml` (removed source-tarball, Sentry, appcast, R2 jobs).
+- Both release workflows now upload to `subdepthtech/Trident` via cross-repo `gh release upload`.
 
-- `plutil -lint` says both `Info.plist` files are valid plist files.
-- The `Info.plist` in `/Applications` matches the one in the Caskroom.
-- That suggests the problem is not simple plist corruption.
+Remaining:
 
-Likely conclusion:
+- Repo secrets must be configured before CI release workflows will succeed (see secrets table below).
+- Notarization requires `notarytool-profile` locally or Apple API key secrets in CI.
 
-- Something about the release packaging/signing flow is producing app bundles that macOS does not fully trust after install.
-- This needs to be fixed in the release pipeline, not just patched locally after install.
+### 4. Stable app showed debug build warning
 
-### 4. Dev cask update model is still awkward
+**Status: Fixed (2026-03-30).**
+
+The stable `/Applications/Trident.app` displayed "You're running a debug build of Trident! Performance will be degraded." because the Zig library was compiled in Debug mode.
+
+The warning triggers when `builtin.mode` is `.Debug` or `.ReleaseSafe` (see `src/main_c.zig:131-141`, displayed in `macos/Sources/Features/Terminal/TerminalView.swift:100-102`).
+
+Fix: Rebuilt with `macos/install.nu` which uses `-Doptimize=ReleaseFast`.
+
+### 5. Dev cask update model is still awkward
 
 Current behavior:
 
@@ -157,9 +167,20 @@ brew install --cask --appdir=/Applications subdepthtech/trident/trident
 brew install --cask --appdir=/Applications subdepthtech/trident/trident-dev
 ```
 
+## Repo Topology
+
+Two GitHub repos serve different roles:
+
+- **`austinkennethtucker/Trident`** (origin) — source code, CI, PRs, where workflows run
+- **`subdepthtech/Trident`** — distribution repo where GitHub Releases hold the DMG assets that Homebrew downloads
+
+Release workflows on `austinkennethtucker/Trident` build the app and upload assets to both repos. The cross-repo upload to `subdepthtech/Trident` requires a `SUBDEPTH_RELEASE_TOKEN` secret (PAT with release write access).
+
 ## Important Repos
 
-- App source and private releases:
+- App source and CI:
+  - `austinkennethtucker/Trident`
+- Distribution releases (Homebrew downloads from here):
   - `subdepthtech/Trident`
 - Private Homebrew tap:
   - `subdepthtech/homebrew-trident`
@@ -167,19 +188,35 @@ brew install --cask --appdir=/Applications subdepthtech/trident/trident-dev
   - `/Users/tucker/projects/dotfiles/zsh/functions/tha`
   - completion: `/Users/tucker/projects/dotfiles/zsh/functions/_tha`
 
+## Required CI Secrets
+
+Set in `austinkennethtucker/Trident` > Settings > Secrets and variables > Actions:
+
+| Secret | Purpose |
+|--------|---------|
+| `PROD_MACOS_CERTIFICATE` | Base64 of exported .p12 Developer ID certificate |
+| `PROD_MACOS_CERTIFICATE_PWD` | Password used when exporting the .p12 |
+| `PROD_MACOS_CERTIFICATE_NAME` | Signing identity string (e.g. `Developer ID Application: Austin Tucker (3364PH2HE3)`) |
+| `PROD_MACOS_CI_KEYCHAIN_PWD` | Any random string (CI keychain password) |
+| `APPLE_NOTARIZATION_ISSUER` | App Store Connect API issuer ID |
+| `APPLE_NOTARIZATION_KEY_ID` | App Store Connect API key ID |
+| `APPLE_NOTARIZATION_KEY` | Contents of the .p8 API key file |
+| `SUBDEPTH_RELEASE_TOKEN` | GitHub PAT with release write access to `subdepthtech/Trident` |
+
 ## Recommended Next Work
 
 ### Highest priority
 
-1. Fix the macOS release packaging/signing flow so installed app bundles pass `codesign --verify` and `spctl`.
-2. Retest Spotlight and Raycast after the packaging/signing fix.
-3. Remove stale local app registrations and old app copies during testing so results are clean.
+1. Configure the CI secrets listed above so release workflows can build signed/notarized DMGs.
+2. Run a test `workflow_dispatch` of Release Tip to verify the full CI pipeline end-to-end.
+3. Set up local `notarytool-profile` for notarizing DMGs built with `macos/install.nu --dmg`.
+4. Retest Spotlight and Raycast after the signing fix.
 
 ### Good follow-up work
 
 1. Make the dev private cask less asset-id dependent if possible.
-2. Add better checks in the release flow so a broken macOS bundle is caught before publishing.
-3. Consider adding a verification step that installs the private casks into a clean `/Applications` target and checks launch behavior.
+2. Add a `codesign --verify` check step in the release workflows after signing.
+3. Automate Homebrew cask version bumps in the release workflows.
 4. Consider teaching `tha` a dedicated `launch` or `doctor` command if this workflow stays private/internal for a while.
 
 ## Useful Checks For A Future Agent
@@ -211,4 +248,4 @@ open -b com.subdepthtech.trident.dev
   - Raycast
   - `open -b ...`
 
-If you want, the next small cleanup would be renaming a few remaining Ghostty-labeled release/job names in the workflow so the fork branding is fully consistent.
+The release workflows have been simplified and cleaned up. Most Ghostty-specific infrastructure (R2, Sentry, appcast, source tarballs) has been removed.
