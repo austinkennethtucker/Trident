@@ -120,8 +120,10 @@ Fix applied:
 
 Remaining:
 
-- Repo secrets must be configured before CI release workflows will succeed (see secrets table below).
-- Notarization requires `notarytool-profile` locally or Apple API key secrets in CI.
+- **GitHub-hosted runners cannot build the macOS app.** The app requires Xcode 26 (macOS 26 SDK) for `NSGlassEffectView` and other new APIs. GitHub's `macos-latest` currently provides Xcode 16.4. The release workflows are ready but will fail at the Xcode build step until GitHub ships Xcode 26 runners.
+- macOS VMs cannot run in Proxmox (Apple license requires Apple hardware), so a self-hosted runner would need dedicated Mac hardware.
+- **Current release path is local builds** using `macos/install.nu --dmg` + `gh release upload`. See "Local Release Process" below.
+- Repo secrets are configured and ready for when CI runners catch up.
 
 ### 4. Stable app showed debug build warning
 
@@ -144,6 +146,45 @@ Consequence:
 
 - `trident-dev` may still need a tap bump when a new private `tip` asset is published.
 - This is less smooth than a normal public latest-download cask.
+
+## Local Release Process
+
+Until GitHub-hosted runners ship Xcode 26, releases are built locally.
+
+### Stable release
+
+```sh
+# 1. Build, sign, install locally
+macos/install.nu
+
+# 2. Create signed + notarized DMG
+macos/install.nu --dmg
+
+# 3. Upload to distribution repo
+gh release upload v1.3.2 Trident.dmg --clobber --repo subdepthtech/Trident
+```
+
+### Dev release
+
+```sh
+# 1. Build the stable app first (reuses same build)
+macos/install.nu --dmg
+
+# 2. Build dev variant using the release-dev script
+macos/release-dev.nu
+
+# 3. Upload to distribution repo
+gh release upload tip Trident-Dev.dmg --clobber --repo subdepthtech/Trident
+```
+
+### Prerequisites
+
+- Zig 0.15.2+ on PATH (Homebrew: `brew install zig`)
+- Xcode 26 with macOS 26 SDK
+- Nushell (`nu`) — available via `nix develop` or `brew install nushell`
+- Developer ID certificate in keychain (auto-detected by `install.nu`)
+- `notarytool-profile` in keychain (one-time setup, see secrets vault item `trident-ci-secrets`)
+- `npx create-dmg` (installed automatically by the script)
 
 ## Current Private Install Contract
 
@@ -203,21 +244,24 @@ Set in `austinkennethtucker/Trident` > Settings > Secrets and variables > Action
 | `APPLE_NOTARIZATION_KEY` | Contents of the .p8 API key file |
 | `SUBDEPTH_RELEASE_TOKEN` | GitHub PAT with release write access to `subdepthtech/Trident` |
 
+All secrets are stored in Proton Pass: vault `secrets`, item `trident-ci-secrets`.
+All secrets are also configured in `austinkennethtucker/Trident` GitHub repo settings.
+
 ## Recommended Next Work
 
 ### Highest priority
 
-1. Configure the CI secrets listed above so release workflows can build signed/notarized DMGs.
-2. Run a test `workflow_dispatch` of Release Tip to verify the full CI pipeline end-to-end.
-3. Set up local `notarytool-profile` for notarizing DMGs built with `macos/install.nu --dmg`.
-4. Retest Spotlight and Raycast after the signing fix.
+1. Create `macos/release-dev.nu` script for building the dev DMG locally (PlistBuddy bundle ID/name changes).
+2. Build and upload both stable and dev DMGs to `subdepthtech/Trident`.
+3. Retest Spotlight and Raycast after the signing fix.
+4. Test `tha install all` end-to-end with the new signed assets.
 
 ### Good follow-up work
 
 1. Make the dev private cask less asset-id dependent if possible.
-2. Add a `codesign --verify` check step in the release workflows after signing.
+2. Re-test release workflows when GitHub ships Xcode 26 on `macos-latest`.
 3. Automate Homebrew cask version bumps in the release workflows.
-4. Consider teaching `tha` a dedicated `launch` or `doctor` command if this workflow stays private/internal for a while.
+4. Consider teaching `tha` a dedicated `launch` or `doctor` command.
 
 ## Useful Checks For A Future Agent
 
