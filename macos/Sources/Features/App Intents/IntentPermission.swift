@@ -44,7 +44,7 @@ func requestIntentPermission() async -> Bool {
             }
 
             PermissionRequest.show(
-                "com.mitchellh.ghostty.shortcutsPermission",
+                Ghostty.scopedIdentifier("shortcutsPermission"),
                 message: "Allow Shortcuts to interact with Trident?",
                 allowDuration: .forever,
                 rememberDuration: nil,

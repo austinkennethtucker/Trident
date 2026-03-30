@@ -1,25 +1,41 @@
 import AppKit
 
 class DockTilePlugin: NSObject, NSDockTilePlugIn {
-    // WARNING: An instance of this class is alive as long as Ghostty's icon is
+    // WARNING: An instance of this class is alive as long as Trident's icon is
     // in the doc (running or not!), so keep any state and processing to a
     // minimum to respect resource usage.
 
     private let pluginBundle = Bundle(for: DockTilePlugin.self)
-
-    // Separate defaults based on debug vs release builds so we can test icons
-    // without messing up releases.
-    #if DEBUG
-    private let ghosttyUserDefaults = UserDefaults(suiteName: "com.mitchellh.ghostty.debug")
-    #else
-    private let ghosttyUserDefaults = UserDefaults(suiteName: "com.mitchellh.ghostty")
-    #endif
 
     private var iconChangeObserver: Any?
 
     /// The URL to the enclosing app bundle, determined from the plugin bundle path.
     var ghosttyAppURL: URL? {
         Self.appBundleURL(for: pluginBundle.bundleURL)
+    }
+
+    private var ghosttyUserDefaults: UserDefaults? {
+        guard let appURL = ghosttyAppURL else {
+            NSLog("Trident DockTilePlugin: failed to locate enclosing app bundle for %@", pluginBundle.bundleURL.path)
+            return nil
+        }
+
+        guard let appBundle = Bundle(url: appURL) else {
+            NSLog("Trident DockTilePlugin: failed to load enclosing app bundle at %@", appURL.path)
+            return nil
+        }
+
+        guard let bundleIdentifier = appBundle.bundleIdentifier else {
+            NSLog("Trident DockTilePlugin: missing bundle identifier for app at %@", appURL.path)
+            return nil
+        }
+
+        guard let userDefaults = UserDefaults(suiteName: bundleIdentifier) else {
+            NSLog("Trident DockTilePlugin: failed to open shared defaults suite %@", bundleIdentifier)
+            return nil
+        }
+
+        return userDefaults
     }
 
     /// Determine the enclosing app bundle for the dock tile plugin bundle.
@@ -45,8 +61,11 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
 
     /// The primary NSDockTilePlugin function.
     func setDockTile(_ dockTile: NSDockTile?) {
-        // If no dock tile or no access to Ghostty defaults, we can't do anything.
+        // If no dock tile or no access to Trident defaults, we can't do anything.
         guard let dockTile, let ghosttyUserDefaults else {
+            if dockTile != nil {
+                NSLog("Trident DockTilePlugin: disabling live icon updates because shared defaults are unavailable")
+            }
             iconChangeObserver = nil
             return
         }
@@ -55,7 +74,7 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
         iconDidChange(ghosttyUserDefaults.appIcon, dockTile: dockTile)
 
         // Setup a new observer for when the icon changes so we can update. This message
-        // is sent by the primary Ghostty app.
+        // is sent by the primary Trident app.
         iconChangeObserver = DistributedNotificationCenter
             .default()
             .publisher(for: .ghosttyIconDidChange)

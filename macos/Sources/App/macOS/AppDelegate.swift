@@ -165,7 +165,8 @@ class AppDelegate: NSObject,
     private var menuItemsByShortcut: [MenuShortcutKey: Weak<NSMenuItem>] = [:]
 
     override init() {
-        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
+        let configPath = Ghostty.configureRuntimeEnvironment()
+        ghostty = Ghostty.App(configPath: configPath)
         super.init()
 
         ghostty.delegate = self
@@ -182,6 +183,7 @@ class AppDelegate: NSObject,
             UserDefaults.ghostty.removePersistentDomain(forName: suite)
         }
         #endif
+        UserDefaults.migrateGhosttyDefaultsIfNeeded()
         UserDefaults.ghostty.register(defaults: [
             // Disable the automatic full screen menu item because we handle
             // it manually.

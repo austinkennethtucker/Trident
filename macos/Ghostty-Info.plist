@@ -54,8 +54,6 @@
 	<string></string>
 	<key>LSEnvironment</key>
 	<dict>
-		<key>GHOSTTY_CONFIG_PATH</key>
-		<string>/Users/tucker/.config/trident/config</string>
 		<key>GHOSTTY_MAC_LAUNCH_SOURCE</key>
 		<string>app</string>
 	</dict>
@@ -113,13 +111,13 @@
 	<key>SUPublicEDKey</key>
 	<string>wsNcGf5hirwtdXMVnYoxRIX/SqZQLMOsYlD3q3imeok=</string>
 	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.mitchellh.ghosttySurfaceId</string>
-			<key>UTTypeDescription</key>
-			<string>Ghostty Surface Identifier</string>
-			<key>UTTypeConformsTo</key>
+		<array>
+			<dict>
+				<key>UTTypeIdentifier</key>
+				<string>$(PRODUCT_BUNDLE_IDENTIFIER).surface-id</string>
+				<key>UTTypeDescription</key>
+				<string>Trident Surface Identifier</string>
+				<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
 			</array>

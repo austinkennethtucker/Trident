@@ -25,7 +25,7 @@ version_dash = version.replace('.', '-')
 build = os.environ["GHOSTTY_BUILD"]
 commit = os.environ["GHOSTTY_COMMIT"]
 commit_long = os.environ["GHOSTTY_COMMIT_LONG"]
-repo = "https://github.com/ghostty-org/ghostty"
+repo = "https://github.com/austinkennethtucker/Trident"
 
 # Read our sign_update output
 with open("sign_update.txt", "r") as f:
@@ -99,7 +99,7 @@ at <a href="https://ghostty.org/docs/install/release-notes/{version_dash}">ghost
 </p>
 """
 elem = ET.SubElement(item, "enclosure")
-elem.set("url", f"https://release.files.ghostty.org/{version}/Ghostty.dmg")
+elem.set("url", f"https://release.files.ghostty.org/{version}/Trident.dmg")
 elem.set("type", "application/octet-stream")
 for key, value in attrs.items():
     elem.set(key, value)

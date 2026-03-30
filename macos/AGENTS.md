@@ -7,7 +7,7 @@
 - Use `macos/build.nu` to build the macOS app, do not use `zig build`
   (except to build the underlying library as mentioned above).
   - Build: `macos/build.nu [--scheme Ghostty] [--configuration Debug] [--action build]`
-  - Output: `macos/build/<configuration>/Ghostty.app` (e.g. `macos/build/Debug/Ghostty.app`)
+  - Output: `macos/build/<configuration>/Trident.app` (e.g. `macos/build/Debug/Trident.app`)
 - Run unit tests directly with `macos/build.nu --action test`
 
 ## Fork-Specific
@@ -16,7 +16,7 @@
 - **Vi mode:** Overlay rendering in `src/renderer/Overlay.zig`, state in `src/ViMode.zig`
 - **C API bridge for popups:** `PopupProfile.C` fields in `popup.zig` must match `ghostty_popup_profile_config_s` in `include/ghostty.h` exactly
 - **Config bridge:** `Ghostty.Config.swift` `popupProfiles` computed property reads popup config from C API
-- **Trident install:** Built app is copied to `/Applications/Trident.app` with `CFBundleDisplayName = Trident` and `GHOSTTY_CONFIG_PATH` pointing to `~/.config/trident/config`
+- **Trident install:** Built app is copied to `/Applications/Trident.app` with `CFBundleDisplayName = Trident`; runtime config path setup happens in `Ghostty.configureRuntimeEnvironment()`, which defaults to `~/.config/trident/config`
 - **Signing:** `codesign --force --deep --sign "Developer ID Application: Austin Tucker (3364PH2HE3)"`
 
 ## AppleScript
@@ -34,10 +34,10 @@
   (1) Build with `macos/build.nu`
   (2) Launch and activate the app via osascript using the absolute path
       to the built app bundle:
-      `osascript -e 'tell application "<absolute path to build/Debug/Ghostty.app>" to activate'`
+      `osascript -e 'tell application "<absolute path to build/Debug/Trident.app>" to activate'`
   (3) Wait a few seconds for the app to fully launch and open a terminal.
   (4) Run test scripts with `osascript`, always targeting the app by
       its absolute path (not by name) to avoid calling the wrong
       application.
   (5) When done, quit via:
-      `osascript -e 'tell application "<absolute path to build/Debug/Ghostty.app>" to quit'`
+      `osascript -e 'tell application "<absolute path to build/Debug/Trident.app>" to quit'`

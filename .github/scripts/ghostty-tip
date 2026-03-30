@@ -7,7 +7,7 @@
 def main [
   commit: string, # The full length commit SHA 
 ] {
-  let url = $"https://tip.files.ghostty.org/($commit)/ghostty-macos-universal.zip"
+  let url = $"https://tip.files.ghostty.org/($commit)/trident-dev-macos-universal.zip"
 
   try {
     http head $url
