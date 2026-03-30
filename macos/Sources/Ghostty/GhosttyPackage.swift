@@ -34,6 +34,9 @@ extension Ghostty {
             .path
     }
 
+    /// Returns the config path used for this run and sets `GHOSTTY_CONFIG_PATH`
+    /// when the caller didn't provide one, so the Zig core and child processes
+    /// resolve the same config file.
     @discardableResult
     static func configureRuntimeEnvironment() -> String {
         let configPath = ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"] ?? preferredConfigPath

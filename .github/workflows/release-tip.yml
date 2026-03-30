@@ -285,9 +285,7 @@ jobs:
       - name: Rename bundle for dev channel
         run: |
           mv "macos/build/Release/Trident.app" "macos/build/Release/Trident Dev.app"
-          if [ -d "macos/build/Release/Trident.app.dSYM" ]; then
-            mv "macos/build/Release/Trident.app.dSYM" "macos/build/Release/Trident Dev.app.dSYM"
-          fi
+          mv "macos/build/Release/Trident.app.dSYM" "macos/build/Release/Trident Dev.app.dSYM"
 
       # We inject the "build number" as simply the number of commits since HEAD.
       # This will be a monotonically always increasing build number that we use.

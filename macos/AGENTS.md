@@ -16,7 +16,7 @@
 - **Vi mode:** Overlay rendering in `src/renderer/Overlay.zig`, state in `src/ViMode.zig`
 - **C API bridge for popups:** `PopupProfile.C` fields in `popup.zig` must match `ghostty_popup_profile_config_s` in `include/ghostty.h` exactly
 - **Config bridge:** `Ghostty.Config.swift` `popupProfiles` computed property reads popup config from C API
-- **Trident install:** Built app is copied to `/Applications/Trident.app` with `CFBundleDisplayName = Trident` and `GHOSTTY_CONFIG_PATH` pointing to `~/.config/trident/config`
+- **Trident install:** Built app is copied to `/Applications/Trident.app` with `CFBundleDisplayName = Trident`; runtime config path setup happens in `Ghostty.configureRuntimeEnvironment()`, which defaults to `~/.config/trident/config`
 - **Signing:** `codesign --force --deep --sign "Developer ID Application: Austin Tucker (3364PH2HE3)"`
 
 ## AppleScript
