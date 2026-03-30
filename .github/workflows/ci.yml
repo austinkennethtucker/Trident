@@ -24,7 +24,7 @@ jobs:
           version: 0.15.2
 
       - name: Build (skip macOS app bundle)
-        run: zig build -Demit-macos-app=false
+        run: zig build -Demit-macos-app=false -Di18n=false
 
       - name: Run popup unit tests
         run: zig test src/apprt/popup.zig
