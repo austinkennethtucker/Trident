@@ -177,13 +177,25 @@ jobs:
           nix develop -c zig build distcheck
           cp zig-out/dist/*.tar.gz ghostty-source.tar.gz
 
+      - name: Check Minisign Secrets
+        id: minisign
+        run: |
+          if [ -n "${{ secrets.MINISIGN_KEY }}" ] && [ -n "${{ secrets.MINISIGN_PASSWORD }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::MINISIGN_KEY or MINISIGN_PASSWORD is not configured; skipping signed tip source tarball release."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sign Tarball
+        if: steps.minisign.outputs.available == 'true'
         run: |
           echo -n "${{ secrets.MINISIGN_KEY }}" > minisign.key
           echo -n "${{ secrets.MINISIGN_PASSWORD }}" > minisign.password
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
+        if: steps.minisign.outputs.available == 'true'
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           name: 'Ghostty Tip ("Nightly")'
