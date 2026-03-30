@@ -160,8 +160,8 @@ jobs:
       )
     runs-on: ubuntu-latest
     env:
-      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.cache/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.cache/zig/global-cache
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: cachix/install-nix-action@1ca7d21a94afc7c957383a2d217460d980de4934 # v31.10.1
@@ -213,8 +213,8 @@ jobs:
       GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
       GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
-      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.cache/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.cache/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -466,8 +466,8 @@ jobs:
       GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
       GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
-      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.cache/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.cache/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -651,8 +651,8 @@ jobs:
       GHOSTTY_BUILD: ${{ needs.setup.outputs.build }}
       GHOSTTY_COMMIT: ${{ needs.setup.outputs.commit }}
       GHOSTTY_COMMIT_LONG: ${{ needs.setup.outputs.commit_long }}
-      ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig/local-cache
-      ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig/global-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.cache/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.cache/zig/global-cache
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
