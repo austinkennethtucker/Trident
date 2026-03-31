@@ -55,7 +55,7 @@ def release-stable [
     tap: string,
     version: string,
     skip_build: bool,
-    identity: string
+    identity: any
 ] {
     let dmg_name = "Trident.dmg"
     let dmg_path = ($repo_root | path join $dmg_name)
@@ -115,7 +115,7 @@ def release-dev [
     release_repo: string,
     tap: string,
     skip_build: bool,
-    identity: string
+    identity: any
 ] {
     let dmg_name = "Trident-Dev.dmg"
     let dmg_path = ($repo_root | path join $dmg_name)
