@@ -4,7 +4,7 @@ A file for [guiding coding agents](https://agents.md/).
 
 **This is a private fork ("Trident"). Agents have full autonomy — create issues, PRs, branches, and commits freely when asked.**
 
-**CRITICAL: ALL git pushes and PRs MUST target `austinkennethtucker/ghostty` (origin). NEVER push to or create PRs against `ghostty-org/ghostty` (upstream). When using `gh pr create`, always pass `--repo austinkennethtucker/ghostty`. The upstream remote is fetch-only.**
+**CRITICAL: ALL git pushes and PRs MUST target `austinkennethtucker/Trident` (origin). NEVER push to or create PRs against `ghostty-org/ghostty` (upstream). When using `gh pr create`, always pass `--repo austinkennethtucker/Trident`. The upstream remote is fetch-only.**
 
 ## Commands
 
@@ -17,9 +17,11 @@ A file for [guiding coding agents](https://agents.md/).
 - **Formatting (Zig):** `zig fmt .`
 - **Formatting (Swift):** `swiftlint lint --strict --fix`
 - **Formatting (other):** `prettier -w .`
-- **macOS app:** `nix develop --command nu macos/build.nu` (not `zig build`)
-- **macOS release:** `nix develop --command nu macos/build.nu --configuration Release`
-- **macOS tests:** `nix develop --command nu macos/build.nu --action test`
+- **macOS app:** `nu macos/build.nu` (not `zig build`)
+- **macOS install:** `nu macos/install.nu` (builds Release, signs, installs to `/Applications`)
+- **macOS stable DMG:** `nu macos/install.nu --dmg` (builds, signs, notarizes)
+- **macOS dev DMG:** `nu macos/release-dev.nu` (patches bundle for dev channel, signs, notarizes)
+- **macOS tests:** `nu macos/build.nu --action test`
 
 ## Directory Structure
 
@@ -34,7 +36,7 @@ A file for [guiding coding agents](https://agents.md/).
 - **Main branch** mirrors upstream tagged releases — never commit directly
 - **All work on feature branches** merged via PRs
 - **Upstream sync:** `git fetch upstream --tags --force && git merge v<version>`
-- **CI:** Self-hosted Proxmox runner, `.github/workflows/ci.yml`
+- **CI:** GitHub-hosted runners, `.github/workflows/ci.yml` (Zig only — macOS app requires local Xcode 26)
 - **Trident config:** `~/.config/trident/config` (separate from Ghostty)
 
 ## Gotchas

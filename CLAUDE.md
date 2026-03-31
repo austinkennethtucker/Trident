@@ -12,10 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Repo:** `austinkennethtucker/Trident` (origin) — **all PRs go here**
 - **Upstream:** `ghostty-org/ghostty` (fetch-only, push disabled) — never PR to this
 - **Sync strategy:** Merge tagged releases only (`git merge v1.3.1`), not `upstream/main`
-- **Base release:** v1.3.1
+- **Base release:** v1.3.3
 - **Trident config:** `~/.config/trident/config` (separate from official Ghostty)
 - **Trident app:** `/Applications/Trident.app` (signed with Developer ID)
-- **CI:** Self-hosted Proxmox runner (LXC 201), `.github/workflows/ci.yml`
+- **CI:** GitHub-hosted runners, `.github/workflows/ci.yml` (Zig build/test only — macOS app requires local Xcode 26)
 - **Skill:** `/ghostty-fork` for development workflow
 
 ## Build Commands
@@ -108,6 +108,24 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
   - Skip rebuild: `macos/install.nu --skip-build`
   - Custom identity: `macos/install.nu --identity "Developer ID Application: Name (TEAM)"`
 - **Create DMG:** `macos/install.nu --dmg` (builds, signs, creates `Trident.dmg`, notarizes, staples)
+- **Create Dev DMG:** `macos/release-dev.nu` (copies Release build, patches bundle ID to `com.subdepthtech.trident.dev`, signs, creates `Trident-Dev.dmg`, notarizes)
+  - Use `--skip-build` to reuse an existing Release build
+- **Local release flow:**
+  1. `nu macos/install.nu --dmg` → `Trident.dmg`
+  2. `nu macos/release-dev.nu --skip-build` → `Trident-Dev.dmg`
+  3. `gh release create vX.Y.Z Trident.dmg --repo subdepthtech/Trident --title "Trident vX.Y.Z"`
+  4. `gh release upload tip Trident-Dev.dmg --clobber --repo subdepthtech/Trident`
+  5. Update asset IDs in `subdepthtech/homebrew-trident` cask files
+
+## Distribution
+
+- **Source + CI:** `austinkennethtucker/Trident` (origin) — all PRs and workflow runs
+- **Release assets:** `subdepthtech/Trident` — GitHub Releases host DMGs that Homebrew downloads
+- **Homebrew tap:** `subdepthtech/homebrew-trident` — casks `trident` (stable) and `trident-dev` (dev)
+- **Cross-repo upload** requires `SUBDEPTH_RELEASE_TOKEN` secret (PAT with Contents write access to `subdepthtech/Trident`)
+- **CI secrets** stored in Proton Pass: vault `secrets`, item `trident-ci-secrets`; also configured in GitHub repo settings
+- **CI release workflows** (`release-tag.yml`, `release-tip.yml`) exist but are blocked on Xcode 26 runners (see #69); local builds are the current release path
+- **Cask asset IDs** must be updated manually after each release (see #67, #68)
 
 ## Popup Terminal (`src/apprt/popup.zig`)
 
