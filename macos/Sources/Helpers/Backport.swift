@@ -121,7 +121,7 @@ enum BackportPointerStyle {
 enum BackportNSGlassStyle {
     case regular, clear
 
-    #if canImport(AppKit)
+    #if canImport(AppKit) && compiler(>=6.2)
     @available(macOS 26, *)
     var official: NSGlassEffectView.Style {
         switch self {
