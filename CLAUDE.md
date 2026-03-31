@@ -4,19 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **This is a private fork ("Trident"). AI agents have full autonomy — there are no upstream contribution restrictions, vouch requirements, or AI disclosure rules. Create issues, PRs, branches, and commits freely when asked.**
 
-**CRITICAL: NEVER push to or create PRs against `ghostty-org/ghostty` (upstream). ALL pushes, branches, and PRs target `austinkennethtucker/Trident` (origin) ONLY. The upstream remote has push disabled. When using `gh pr create`, always use `--repo austinkennethtucker/Trident` or verify the target repo before submitting.**
+**CRITICAL: NEVER push to or create PRs against `ghostty-org/ghostty` (upstream). ALL pushes, branches, and PRs target `subdepthtech/Trident` (origin) ONLY. The upstream remote has push disabled. When using `gh pr create`, always use `--repo subdepthtech/Trident` or verify the target repo before submitting.**
 
 ## Fork Identity
 
 - **Display name:** Trident (internals still say Ghostty)
-- **Repo:** `austinkennethtucker/Trident` (origin) — **all PRs go here**
+- **Primary repo:** `subdepthtech/Trident` (origin, private) — **all pushes, branches, and PRs go here**
+- **Public fork:** `austinkennethtucker/Trident` (public-fork remote) — upstream sync bridge only, updated with release tags
 - **Upstream:** `ghostty-org/ghostty` (fetch-only, push disabled) — never PR to this
-- **Sync strategy:** Merge tagged releases only (`git merge v1.3.1`), not `upstream/main`
+- **Sync strategy:** Manual merge of tagged upstream releases (`git fetch upstream --tags && git merge vX.Y.Z`)
 - **Base release:** v1.3.3
 - **Trident config:** `~/.config/trident/config` (separate from official Ghostty)
 - **Trident app:** `/Applications/Trident.app` (signed with Developer ID)
 - **CI:** GitHub-hosted runners, `.github/workflows/ci.yml` (Zig build/test only — macOS app requires local Xcode 26)
 - **Skill:** `/ghostty-fork` for development workflow
+
+### Local Remotes
+
+```
+origin        → subdepthtech/Trident.git        (fetch + push) — default push target
+public-fork   → austinkennethtucker/Trident.git  (fetch + push) — explicit only
+upstream      → ghostty-org/ghostty.git          (fetch only, push DISABLED)
+```
 
 ## Build Commands
 
@@ -119,13 +128,13 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
 
 ## Distribution
 
-- **Source + CI:** `austinkennethtucker/Trident` (origin) — all PRs and workflow runs
-- **Release assets:** `subdepthtech/Trident` — GitHub Releases host DMGs that Homebrew downloads
+- **Source + CI + Releases:** `subdepthtech/Trident` (origin, private) — all PRs, workflow runs, and release assets
+- **Public fork:** `austinkennethtucker/Trident` (public-fork) — sync bridge only, no releases
 - **Homebrew tap:** `subdepthtech/homebrew-trident` — casks `trident` (stable) and `trident-dev` (dev)
-- **Cross-repo upload** requires `SUBDEPTH_RELEASE_TOKEN` secret (PAT with Contents write access to `subdepthtech/Trident`)
-- **CI secrets** stored in Proton Pass: vault `secrets`, item `trident-ci-secrets`; also configured in GitHub repo settings
+- **CI secrets** stored in Proton Pass: vault `secrets`, item `trident-ci-secrets`; also configured on `subdepthtech/Trident` repo settings
 - **CI release workflows** (`release-tag.yml`, `release-tip.yml`) exist but are blocked on Xcode 26 runners (see #69); local builds are the current release path
-- **Cask asset IDs** must be updated manually after each release (see #67, #68)
+- **Cask asset IDs** must be updated manually after each release until `macos/release.nu` automates this (see #67, #68)
+- **Release script:** `nu macos/release.nu --channel stable --version vX.Y.Z` or `--channel dev` (builds, signs, uploads, updates Homebrew cask)
 
 ## Popup Terminal (`src/apprt/popup.zig`)
 
