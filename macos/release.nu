@@ -123,13 +123,13 @@ def release-dev [
 
     # Step 1: Build dev DMG
     if not $skip_build {
-        print $"(ansi cyan)Step 1/5: Building dev DMG...(ansi reset)"
+        print $"(ansi cyan)Step 1/4: Building dev DMG...(ansi reset)"
         let build_args = []
         let build_args = if $identity != null { $build_args | append ["--identity" $identity] } else { $build_args }
         cd $macos_dir
         nu ($macos_dir | path join "release-dev.nu") ...$build_args
     } else {
-        print $"(ansi cyan)Step 1/5: Skipping build, using existing DMG(ansi reset)"
+        print $"(ansi cyan)Step 1/4: Skipping build, using existing DMG(ansi reset)"
     }
 
     if not ($dmg_path | path exists) {
@@ -138,13 +138,13 @@ def release-dev [
     }
 
     # Step 2: Upload to tip release (clobber existing)
-    print $"(ansi cyan)Step 2/5: Uploading to tip release...(ansi reset)"
+    print $"(ansi cyan)Step 2/4: Uploading to tip release...(ansi reset)"
     cd $repo_root
     gh release upload tip $dmg_name --clobber --repo $release_repo
     print $"(ansi green)Uploaded ($dmg_name) to tip release.(ansi reset)"
 
     # Step 3: Get asset ID
-    print $"(ansi cyan)Step 3/5: Fetching asset ID...(ansi reset)"
+    print $"(ansi cyan)Step 3/4: Fetching asset ID...(ansi reset)"
     let asset_id = (gh api $"repos/($release_repo)/releases/tags/tip"
         | from json
         | get assets
@@ -152,15 +152,10 @@ def release-dev [
         | get id.0)
     print $"(ansi green)Asset ID: ($asset_id)(ansi reset)"
 
-    # Step 4: Compute SHA-256
-    print $"(ansi cyan)Step 4/5: Computing SHA-256...(ansi reset)"
-    let sha = (shasum -a 256 $dmg_path | split row " " | first)
-    print $"(ansi green)SHA-256: ($sha)(ansi reset)"
-
-    # Step 5: Update Homebrew cask
-    print $"(ansi cyan)Step 5/5: Updating Homebrew cask...(ansi reset)"
+    # Step 4: Update Homebrew cask (sha256 :no_check for unversioned tip URL)
+    print $"(ansi cyan)Step 4/4: Updating Homebrew cask...(ansi reset)"
     let commit_short = (git rev-parse --short HEAD | str trim)
-    update-cask $cask_file $commit_short $asset_id $sha $release_repo
+    update-cask $cask_file $commit_short $asset_id ":no_check" $release_repo
     commit-and-push-tap $tap $"Update trident-dev cask to ($commit_short)"
 
     print ""
@@ -187,7 +182,11 @@ def update-cask [cask_file: string, version: string, asset_id: int, sha: string,
     let content = ($content | str replace --regex 'releases/assets/\d+' $'releases/assets/($asset_id)')
 
     # Replace sha256 line (handle both :no_check and actual hashes)
-    let content = ($content | str replace --regex 'sha256 .+' $'sha256 "($sha)"')
+    let content = if $sha == ":no_check" {
+        $content | str replace --regex 'sha256 .+' 'sha256 :no_check'
+    } else {
+        $content | str replace --regex 'sha256 .+' $'sha256 "($sha)"'
+    }
 
     $content | save -f $cask_file
     print $"(ansi green)Updated ($cask_file)(ansi reset)"

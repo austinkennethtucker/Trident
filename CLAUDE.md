@@ -119,22 +119,18 @@ The build logic lives in `src/build/` to avoid a monolithic `build.zig`. Key fil
 - **Create DMG:** `macos/install.nu --dmg` (builds, signs, creates `Trident.dmg`, notarizes, staples)
 - **Create Dev DMG:** `macos/release-dev.nu` (copies Release build, patches bundle ID to `com.subdepthtech.trident.dev`, signs, creates `Trident-Dev.dmg`, notarizes)
   - Use `--skip-build` to reuse an existing Release build
-- **Local release flow:**
-  1. `nu macos/install.nu --dmg` → `Trident.dmg`
-  2. `nu macos/release-dev.nu --skip-build` → `Trident-Dev.dmg`
-  3. `gh release create vX.Y.Z Trident.dmg --repo subdepthtech/Trident --title "Trident vX.Y.Z"`
-  4. `gh release upload tip Trident-Dev.dmg --clobber --repo subdepthtech/Trident`
-  5. Update asset IDs in `subdepthtech/homebrew-trident` cask files
+- **Release (stable):** `nu macos/release.nu --channel stable --version vX.Y.Z` (builds, signs, uploads, updates Homebrew cask)
+- **Release (dev):** `nu macos/release.nu --channel dev` (builds dev DMG, uploads to tip, updates cask)
+  - Add `--skip-build` to reuse an existing DMG for either channel
 
 ## Distribution
 
 - **Source + CI + Releases:** `subdepthtech/Trident` (origin, private) — all PRs, workflow runs, and release assets
 - **Public fork:** `austinkennethtucker/Trident` (public-fork) — sync bridge only, no releases
 - **Homebrew tap:** `subdepthtech/homebrew-trident` — casks `trident` (stable) and `trident-dev` (dev)
+- **Homebrew auth:** `tha` shell function exports `HOMEBREW_GITHUB_API_TOKEN` via `gh auth token`, taps the repo, and installs/upgrades casks
 - **CI secrets** stored in Proton Pass: vault `secrets`, item `trident-ci-secrets`; also configured on `subdepthtech/Trident` repo settings
 - **CI release workflows** (`release-tag.yml`, `release-tip.yml`) exist but are blocked on Xcode 26 runners (see #69); local builds are the current release path
-- **Cask asset IDs** must be updated manually after each release until `macos/release.nu` automates this (see #67, #68)
-- **Release script:** `nu macos/release.nu --channel stable --version vX.Y.Z` or `--channel dev` (builds, signs, uploads, updates Homebrew cask)
 
 ## Popup Terminal (`src/apprt/popup.zig`)
 
