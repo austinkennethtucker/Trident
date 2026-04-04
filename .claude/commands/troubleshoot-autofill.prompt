@@ -1,0 +1,106 @@
+Troubleshoot the Proton Pass autofill system in Trident's browser pane. The autofill is not working as expected — diagnose and fix the issue.
+
+## Architecture Summary
+
+The autofill system has 5 components:
+
+1. **AutofillStore** (`macos/Sources/Features/Browser/Autofill/AutofillStore.swift`) — shared across tabs, discovers pass-cli binary, caches vault metadata (no passwords), matches URLs
+2. **BrowserAutofillController** (`macos/Sources/Features/Browser/Autofill/BrowserAutofillController.swift`) — per-tab, receives WKScriptMessages, validates origins, orchestrates fill/TOTP/save
+3. **autofill-detection.js** (`macos/Sources/Features/Browser/Autofill/autofill-detection.js`) — WKUserScript injected at document end in page world, detects login forms, posts to Swift via `window.webkit.messageHandlers.autofill`
+4. **autofill-fill.js** (`macos/Sources/Features/Browser/Autofill/autofill-fill.js`) — WKUserScript in `WKContentWorld.defaultClient`, provides `window.__tridentAutofillHelper.fill()` for React-safe field filling
+5. **AutofillOverlayView** (`macos/Sources/Features/Browser/Autofill/AutofillOverlayView.swift`) — SwiftUI overlay: credential picker, TOTP toast, save prompt, session expired banner
+
+Integration points:
+- `BrowserPaneModel.swift` — registers scripts + message handler in `createWebView()`, dispatches "autofill" messages to controller
+- `BrowserTabManager.swift` — creates shared AutofillStore, passes to tab models
+- `BrowserPaneView.swift` — overlays AutofillOverlayView on web content
+- `BrowsableSurface.swift` — passes config (`browserAutofill`, `browserAutofillVault`) to BrowserTabManager
+
+Config: `browser-autofill` (bool, default true) and `browser-autofill-vault` (optional string) in Config.zig + Ghostty.Config.swift.
+
+## Debug Checklist
+
+### 1. Is pass-cli discoverable from the GUI app?
+
+Finder-launched apps get a minimal PATH. AutofillStore uses login shell discovery + well-known paths:
+- `~/.local/bin/pass-cli` (current location)
+- `/opt/homebrew/bin/pass-cli`
+- `/usr/local/bin/pass-cli`
+
+**Test:** Launch Trident from terminal to see stdout:
+```
+/Applications/Trident.app/Contents/MacOS/Ghostty 2>&1 | grep -i "autofill\|pass-cli"
+```
+Look for: `[AutofillStore] pass-cli discovered at: ...` or `pass-cli not found`
+
+### 2. Is the pass-cli session active?
+
+```
+pass-cli test
+```
+If exit code != 0, run `pass-cli login` first.
+
+### 3. Are the JS files in the app bundle?
+
+```
+find /Applications/Trident.app/Contents/Resources -name "autofill*"
+```
+Should show both `autofill-detection.js` and `autofill-fill.js`.
+
+### 4. Is autofill enabled in config?
+
+Check `~/.config/trident/config` for `browser-autofill = false`. If not present, default is true.
+
+### 5. Is the BrowserTabManager creating an AutofillStore?
+
+Look for `[BrowserTabManager] autofillEnabled=true` in terminal output. If false, the config getter may not be working.
+
+### 6. Is the form detection JS running?
+
+In the browser pane, open the JS console (toggle with toolbar button) and type:
+```
+window.__tridentAutofillDetectionActive
+```
+Should return `true`. If undefined, the detection script isn't being injected.
+
+### 7. Is the fill helper injected?
+
+In the JS console:
+```
+window.__tridentAutofillHelper
+```
+This runs in `defaultClient` world so it won't be visible from the page console. Check if fill works by looking for `[AutofillController]` messages in terminal output.
+
+### 8. Are messages reaching the controller?
+
+Look for these in terminal output:
+- `[AutofillController] Ignored message from non-main frame` — iframe issue
+- `[AutofillController] Origin validation failed` — security origin mismatch
+- `[AutofillController] fetchCredential returned nil` — pass-cli fetch failed
+
+### 9. Is URL matching working?
+
+The store uses exact-host matching with www-prefix stripping. For github.com, the stored URLs in pass-cli items must contain `github.com` in the hostname. Check:
+```
+pass-cli item list "Personal" --filter-type login --output json | python3 -c "
+import json, sys
+items = json.load(sys.stdin)
+for item in items:
+    urls = item.get('content',{}).get('content',{}).get('Login',{}).get('urls',[])
+    for url in urls:
+        if 'github' in url.lower():
+            print(f\"{item['content']['title']}: {urls}\")
+"
+```
+
+### 10. Threading / @MainActor issues
+
+AutofillStore and BrowserAutofillController are NOT @MainActor (removed to fix compile errors). If there are threading crashes, check if @Published properties are being set from background threads — they should be set on the main thread via DispatchQueue.main.async.
+
+## Common Fixes
+
+- **pass-cli not found:** Check `AutofillStore.discoverCLI()` — it tries login shell `which` then well-known paths
+- **Session expired won't clear:** Check `handleFormDetected` — after `checkSession()`, it should only return if `store.isUnavailable` is still true
+- **No overlay shown:** Check `BrowserPaneView.swift` — the ZStack with `AutofillOverlayView` must be present
+- **JS not injected:** Check `createWebView()` in `BrowserPaneModel` — the `if autofillEnabled` guard must be true
+- **Config not reading:** Check `ghostty_config_get` call in `Ghostty.Config.swift` — the key must exactly match the Zig field name
