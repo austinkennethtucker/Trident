@@ -3893,6 +3893,17 @@ term: []const u8 = "xterm-ghostty",
 /// NOT affect terminal connections — only the embedded browser.
 @"browser-tls-strict": bool = true,
 
+/// Enable Proton Pass autofill in browser panes. When true, Trident
+/// injects form-detection JavaScript and offers to fill credentials
+/// from pass-cli. Set to false to disable all autofill functionality.
+/// Only effective when the browser pane feature is enabled.
+@"browser-autofill": bool = true,
+
+/// Restrict autofill to a single Proton Pass vault by name
+/// (e.g., "Personal"). When null, credentials are loaded from all
+/// vaults. Only effective when `browser-autofill` is true.
+@"browser-autofill-vault": ?[:0]const u8 = null,
+
 /// This is set by the CLI parser for deinit.
 _arena: ?ArenaAllocator = null,
 
