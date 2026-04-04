@@ -681,6 +681,23 @@ extension Ghostty {
             return v
         }
 
+        var browserAutofill: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "browser-autofill"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        var browserAutofillVault: String? {
+            guard let config = self.config else { return nil }
+            var v: UnsafePointer<Int8>?
+            let key = "browser-autofill-vault"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            guard let ptr = v else { return nil }
+            return String(cString: ptr)
+        }
+
         /// Get popup profile configurations from the Zig config system.
         /// Returns a dictionary of profile name -> PopupProfileConfig.
         var popupProfiles: [String: PopupController.PopupProfileConfig] {
