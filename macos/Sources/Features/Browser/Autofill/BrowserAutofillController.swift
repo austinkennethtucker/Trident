@@ -105,10 +105,12 @@ final class BrowserAutofillController: ObservableObject {
               let pageURL = webView.url else { return }
 
         Task {
+            // Re-check session if previously unavailable
             if store.isUnavailable {
                 await store.checkSession()
                 sessionExpired = store.isUnavailable
-                return
+                // If still unavailable after re-check, bail out
+                if store.isUnavailable { return }
             }
 
             let matches = await store.findMatches(for: pageURL)
