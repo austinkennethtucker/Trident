@@ -79,9 +79,23 @@ struct BrowserPaneView: View {
                         .progressViewStyle(.linear)
                 }
 
-                // Web content — .id forces view swap when switching tabs
-                BrowserWebView(model: model, onBrowserFocused: onBrowserFocused)
-                    .id(model.id)
+                // Web content with autofill overlay
+                ZStack(alignment: .top) {
+                    BrowserWebView(model: model, onBrowserFocused: onBrowserFocused)
+                        .id(model.id)
+
+                    if let controller = model.autofillController {
+                        AutofillOverlayView(
+                            controller: controller,
+                            availableVaults: ["Personal"]
+                        )
+                        .allowsHitTesting(
+                            controller.showPrompt ||
+                            controller.showSave ||
+                            controller.sessionExpired
+                        )
+                    }
+                }
 
                 // JS Console panel
                 if model.jsConsoleVisible {

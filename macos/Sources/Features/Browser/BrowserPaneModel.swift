@@ -42,6 +42,12 @@ class BrowserPaneModel: NSObject, ObservableObject {
     /// HAR recorder for capturing HTTP request/response metadata.
     let harRecorder: BrowserHARRecorder
 
+    /// Per-tab autofill controller. Nil when autofill is disabled via config.
+    let autofillController: BrowserAutofillController?
+
+    /// Whether autofill is active for this tab (config-driven).
+    let autofillEnabled: Bool
+
     /// The WKWebView instance. Created lazily on first access so the proxy
     /// relay is guaranteed to be running before the web view configures its
     /// proxy settings.
@@ -53,7 +59,7 @@ class BrowserPaneModel: NSObject, ObservableObject {
         let recorder = BrowserHARRecorder()
 
         // Start a local proxy relay
-        var relay: BrowserProxyRelay? = nil
+        var relay: BrowserProxyRelay?
         let r = BrowserProxyRelay()
         r.upstreamProxy = proxyURL
         r.harRecorder = recorder
@@ -94,7 +100,9 @@ class BrowserPaneModel: NSObject, ObservableObject {
         tlsStrict: Bool = true,
         sharedRelay: BrowserProxyRelay?,
         ownsRelay: Bool,
-        harRecorder: BrowserHARRecorder
+        harRecorder: BrowserHARRecorder,
+        autofillStore: AutofillStore? = nil,
+        autofillEnabled: Bool = false
     ) {
         self.proxyURL = proxyURL
         self.proxyCertPath = proxyCertPath
@@ -102,6 +110,12 @@ class BrowserPaneModel: NSObject, ObservableObject {
         self.proxyRelay = sharedRelay
         self.ownsRelay = ownsRelay
         self.harRecorder = harRecorder
+        self.autofillEnabled = autofillEnabled
+        if autofillEnabled, let store = autofillStore {
+            self.autofillController = BrowserAutofillController(store: store)
+        } else {
+            self.autofillController = nil
+        }
         super.init()
     }
 
@@ -208,6 +222,28 @@ class BrowserPaneModel: NSObject, ObservableObject {
     })();
     """
 
+    /// JavaScript injected at document end (main frame only, page world) for
+    /// form detection + submit capture. Loaded from the bundled resource file.
+    static let autofillDetectionScript: String = {
+        guard let url = Bundle.main.url(forResource: "autofill-detection", withExtension: "js"),
+              let source = try? String(contentsOf: url, encoding: .utf8) else {
+            print("[BrowserPane] autofill-detection.js not found in bundle")
+            return ""
+        }
+        return source
+    }()
+
+    /// JavaScript injected at document end (defaultClient world) for safe field fill.
+    /// Loaded from the bundled resource file.
+    static let autofillFillScript: String = {
+        guard let url = Bundle.main.url(forResource: "autofill-fill", withExtension: "js"),
+              let source = try? String(contentsOf: url, encoding: .utf8) else {
+            print("[BrowserPane] autofill-fill.js not found in bundle")
+            return ""
+        }
+        return source
+    }()
+
     /// Creates and configures the WKWebView. Called once via lazy initialization.
     /// NOTE: This must not be called during init — proxyRelay must be set up first.
     private func createWebView() -> WKWebView {
@@ -245,12 +281,40 @@ class BrowserPaneModel: NSObject, ObservableObject {
         )
         contentController.addUserScript(harScript)
 
+        // Register autofill scripts and message handler (when enabled)
+        if autofillEnabled, !Self.autofillDetectionScript.isEmpty {
+            // Handler: routes "autofill" messages to the per-tab controller
+            contentController.add(WeakScriptMessageHandler(self), name: "autofill")
+
+            // Detection script: runs in page world at document end, main frame only
+            let detectionScript = WKUserScript(
+                source: Self.autofillDetectionScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+            contentController.addUserScript(detectionScript)
+
+            // Fill helper: runs in defaultClient world at document end
+            if !Self.autofillFillScript.isEmpty {
+                let fillScript = WKUserScript(
+                    source: Self.autofillFillScript,
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true,
+                    in: .defaultClient
+                )
+                contentController.addUserScript(fillScript)
+            }
+        }
+
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = self
         wv.allowsBackForwardNavigationGestures = true
 
         setupObservations(for: wv)
         self.inspectorOverlay = BrowserInspectorOverlay(webView: wv)
+
+        // Attach autofill controller to the web view
+        autofillController?.attach(to: wv)
 
         return wv
     }
@@ -523,38 +587,46 @@ extension BrowserPaneModel: WKNavigationDelegate {
 
 extension BrowserPaneModel: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "harLog",
-              let body = message.body as? [String: Any],
-              harRecorder.isRecording else { return }
+        switch message.name {
+        case "harLog":
+            guard let body = message.body as? [String: Any],
+                  harRecorder.isRecording else { return }
 
-        let method = body["method"] as? String ?? "GET"
-        let url = body["url"] as? String ?? ""
-        let status = body["status"] as? Int ?? 0
-        let statusText = body["statusText"] as? String ?? ""
-        let duration = (body["duration"] as? Double ?? 0) / 1000.0
+            let method = body["method"] as? String ?? "GET"
+            let url = body["url"] as? String ?? ""
+            let status = body["status"] as? Int ?? 0
+            let statusText = body["statusText"] as? String ?? ""
+            let duration = (body["duration"] as? Double ?? 0) / 1000.0
 
-        var reqHeaders: [(name: String, value: String)] = []
-        if let headers = body["requestHeaders"] as? [String: String] {
-            reqHeaders = headers.map { (name: $0.key, value: $0.value) }
+            var reqHeaders: [(name: String, value: String)] = []
+            if let headers = body["requestHeaders"] as? [String: String] {
+                reqHeaders = headers.map { (name: $0.key, value: $0.value) }
+            }
+            var respHeaders: [(name: String, value: String)] = []
+            if let headers = body["responseHeaders"] as? [String: String] {
+                respHeaders = headers.map { (name: $0.key, value: $0.value) }
+            }
+
+            harRecorder.append(HAREntry(
+                startedDateTime: Date(),
+                method: method,
+                url: url,
+                httpVersion: "HTTP/1.1",
+                requestHeaders: reqHeaders,
+                responseStatus: status,
+                responseStatusText: statusText,
+                responseHeaders: respHeaders,
+                responseBodySize: 0,
+                timings: HARTimings(connect: 0, send: 0, wait: duration, receive: 0),
+                source: .jsIntercept
+            ))
+
+        case "autofill":
+            autofillController?.handleMessage(message)
+
+        default:
+            break
         }
-        var respHeaders: [(name: String, value: String)] = []
-        if let headers = body["responseHeaders"] as? [String: String] {
-            respHeaders = headers.map { (name: $0.key, value: $0.value) }
-        }
-
-        harRecorder.append(HAREntry(
-            startedDateTime: Date(),
-            method: method,
-            url: url,
-            httpVersion: "HTTP/1.1",
-            requestHeaders: reqHeaders,
-            responseStatus: status,
-            responseStatusText: statusText,
-            responseHeaders: respHeaders,
-            responseBodySize: 0,
-            timings: HARTimings(connect: 0, send: 0, wait: duration, receive: 0),
-            source: .jsIntercept
-        ))
     }
 }
 
