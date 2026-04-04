@@ -82,21 +82,44 @@ final class AutofillStore: ObservableObject {
     // MARK: - CLI Discovery
 
     private func discoverCLI() async {
-        let found = await runProcess(
-            executable: "/usr/bin/which",
-            arguments: ["pass-cli"],
+        // Finder-launched apps get a minimal PATH that excludes ~/.local/bin,
+        // /opt/homebrew/bin, etc. Check well-known locations directly instead
+        // of relying on `which`.
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = [
+            "\(home)/.local/bin/pass-cli",
+            "/opt/homebrew/bin/pass-cli",
+            "/usr/local/bin/pass-cli",
+            "\(home)/.cargo/bin/pass-cli"
+        ]
+
+        // Also try `which` via the user's login shell for non-standard locations
+        let whichResult = await runProcess(
+            executable: "/bin/zsh",
+            arguments: ["-l", "-c", "which pass-cli"],
             input: nil
         )
-        let trimmed = found.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || found.exitCode != 0 {
-            print("[AutofillStore] pass-cli not found — autofill disabled")
-            isUnavailable = true
-            unavailableReason = "pass-cli not found in PATH"
+        let whichPath = whichResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if whichResult.exitCode == 0, !whichPath.isEmpty {
+            passCLIPath = whichPath
+            print("[AutofillStore] pass-cli discovered via login shell at: \(whichPath)")
+            await checkSession()
             return
         }
-        passCLIPath = trimmed
-        print("[AutofillStore] pass-cli discovered at: \(trimmed)")
-        await checkSession()
+
+        // Fall back to well-known paths
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                passCLIPath = path
+                print("[AutofillStore] pass-cli discovered at: \(path)")
+                await checkSession()
+                return
+            }
+        }
+
+        print("[AutofillStore] pass-cli not found — autofill disabled")
+        isUnavailable = true
+        unavailableReason = "pass-cli not found — install it or add it to PATH"
     }
 
     // MARK: - Session Check
