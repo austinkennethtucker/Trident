@@ -54,7 +54,6 @@ private struct VaultIndex {
 /// Analogy: think of this like a DNS cache — it keeps a fast in-memory
 /// index of what's in the vault and only reaches out to the real store
 /// when it needs to resolve a specific secret.
-@MainActor
 final class AutofillStore: ObservableObject {
 
     // MARK: - Published State
@@ -371,7 +370,7 @@ final class AutofillStore: ObservableObject {
     }
 
     /// Run an external process off the main thread, optionally piping `input` to stdin.
-    private nonisolated func runProcess(
+    private func runProcess(
         executable: String,
         arguments: [String],
         input: String?

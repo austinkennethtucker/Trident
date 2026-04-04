@@ -7,7 +7,6 @@ import AppKit
 /// Per-tab autofill state machine. Receives WKScriptMessages dispatched
 /// by BrowserPaneModel, validates their origin, resolves matching
 /// credentials from the shared store, and drives the overlay UI state.
-@MainActor
 final class BrowserAutofillController: ObservableObject {
 
     // MARK: - Published UI State
