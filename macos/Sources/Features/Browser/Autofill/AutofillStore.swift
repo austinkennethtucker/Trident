@@ -118,8 +118,10 @@ final class AutofillStore: ObservableObject {
         }
 
         print("[AutofillStore] pass-cli not found — autofill disabled")
-        isUnavailable = true
-        unavailableReason = "pass-cli not found — install it or add it to PATH"
+        await MainActor.run {
+            isUnavailable = true
+            unavailableReason = "pass-cli not found — install it or add it to PATH"
+        }
     }
 
     // MARK: - Session Check
@@ -131,11 +133,15 @@ final class AutofillStore: ObservableObject {
         let result = await runProcess(executable: cli, arguments: ["test"], input: nil)
         if result.exitCode != 0 {
             print("[AutofillStore] pass-cli session expired")
-            isUnavailable = true
-            unavailableReason = "Proton Pass session expired — run `pass-cli login` in a terminal"
+            await MainActor.run {
+                isUnavailable = true
+                unavailableReason = "Proton Pass session expired — run `pass-cli login` in a terminal"
+            }
         } else {
-            isUnavailable = false
-            unavailableReason = ""
+            await MainActor.run {
+                isUnavailable = false
+                unavailableReason = ""
+            }
         }
     }
 
@@ -162,9 +168,18 @@ final class AutofillStore: ObservableObject {
 
         return index.items.filter { item in
             item.urls.contains { urlStr in
-                guard let url = URL(string: urlStr),
-                      let itemHost = normalizeHost(url.host) else { return false }
-                return itemHost == pageHost
+                // Try the URL as-is first
+                if let url = URL(string: urlStr),
+                   let itemHost = normalizeHost(url.host) {
+                    return itemHost == pageHost
+                }
+                // If host is nil and URL has no scheme, try prepending https://
+                if !urlStr.contains("://"),
+                   let url = URL(string: "https://\(urlStr)"),
+                   let itemHost = normalizeHost(url.host) {
+                    return itemHost == pageHost
+                }
+                return false
             }
         }
     }

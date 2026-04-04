@@ -35,6 +35,10 @@ final class BrowserAutofillController: ObservableObject {
     /// Set to true after we fill a form, so submitDetected suppresses save.
     var autofillDidFill: Bool = false
 
+    /// CSS selectors extracted from the most recent formDetected message.
+    private var detectedUsernameSelector: String?
+    private var detectedPasswordSelector: String?
+
     /// Active TOTP clear timer.
     private var totpClearTimer: DispatchWorkItem?
 
@@ -104,18 +108,33 @@ final class BrowserAutofillController: ObservableObject {
         guard let webView,
               let pageURL = webView.url else { return }
 
+        // Extract form-specific selectors from the detection script.
+        // Use the first detected form (most pages have exactly one login form).
+        if let forms = body["forms"] as? [[String: Any]], let firstForm = forms.first {
+            detectedUsernameSelector = firstForm["usernameSelector"] as? String
+            detectedPasswordSelector = firstForm["passwordSelector"] as? String
+        } else {
+            detectedUsernameSelector = nil
+            detectedPasswordSelector = nil
+        }
+
         Task {
             // Re-check session if previously unavailable
             if store.isUnavailable {
                 await store.checkSession()
-                sessionExpired = store.isUnavailable
+                let stillUnavailable = store.isUnavailable
+                await MainActor.run {
+                    sessionExpired = stillUnavailable
+                }
                 // If still unavailable after re-check, bail out
-                if store.isUnavailable { return }
+                if stillUnavailable { return }
             }
 
             let matches = await store.findMatches(for: pageURL)
-            matchingCredentials = matches
-            showPrompt = !matches.isEmpty
+            await MainActor.run {
+                matchingCredentials = matches
+                showPrompt = !matches.isEmpty
+            }
         }
     }
 
@@ -166,7 +185,7 @@ final class BrowserAutofillController: ObservableObject {
                     webView.callAsyncJavaScript(
                         "return window.__tridentAutofillHelper.fill(selector, value)",
                         arguments: [
-                            "selector": "input[autocomplete=\"username\"], input[type=\"email\"], input[type=\"text\"]",
+                            "selector": self.detectedUsernameSelector ?? "input[autocomplete=\"username\"], input[type=\"email\"], input[type=\"text\"]",
                             "value": usernameValue
                         ],
                         in: nil,
@@ -176,7 +195,7 @@ final class BrowserAutofillController: ObservableObject {
                     webView.callAsyncJavaScript(
                         "return window.__tridentAutofillHelper.fill(selector, value)",
                         arguments: [
-                            "selector": "input[type=\"password\"]",
+                            "selector": self.detectedPasswordSelector ?? "input[type=\"password\"]",
                             "value": secret.password
                         ],
                         in: nil,
@@ -187,7 +206,7 @@ final class BrowserAutofillController: ObservableObject {
                 }
             }
 
-            autofillDidFill = true
+            await MainActor.run { autofillDidFill = true }
 
             if credential.hasTOTP {
                 await handleTOTP(shareId: credential.shareId, itemId: credential.itemId)
@@ -200,21 +219,20 @@ final class BrowserAutofillController: ObservableObject {
     private func handleTOTP(shareId: String, itemId: String) async {
         guard let code = await store.fetchTOTP(shareId: shareId, itemId: itemId) else { return }
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(code, forType: .string)
-
-        totpCode = code
-
-        totpClearTimer?.cancel()
-
-        let item = DispatchWorkItem { [weak self] in
+        await MainActor.run {
             NSPasteboard.general.clearContents()
-            DispatchQueue.main.async {
+            NSPasteboard.general.setString(code, forType: .string)
+
+            totpCode = code
+            totpClearTimer?.cancel()
+
+            let item = DispatchWorkItem { [weak self] in
+                NSPasteboard.general.clearContents()
                 self?.totpCode = nil
             }
+            totpClearTimer = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: item)
         }
-        totpClearTimer = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: item)
     }
 
     // MARK: - Save Credential
