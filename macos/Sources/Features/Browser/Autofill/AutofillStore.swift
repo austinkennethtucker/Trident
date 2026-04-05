@@ -240,12 +240,23 @@ final class AutofillStore: ObservableObject {
 
     // MARK: - JSON Parsing
 
-    /// Parse the JSON array returned by `pass-cli item list`.
+    /// Parse the JSON returned by `pass-cli item list`.
+    /// Handles both `{"items": [...]}` (current CLI) and bare `[...]` (legacy).
     /// Extracts metadata only — passwords and totp_uri are discarded after
     /// the hasTOTP boolean is derived.
     private func parseItemList(_ jsonString: String) -> [PassCredentialMeta] {
         guard let data = jsonString.data(using: .utf8),
-              let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+              let json = try? JSONSerialization.jsonObject(with: data) else {
+            return []
+        }
+
+        let array: [[String: Any]]
+        if let dict = json as? [String: Any],
+           let items = dict["items"] as? [[String: Any]] {
+            array = items
+        } else if let items = json as? [[String: Any]] {
+            array = items
+        } else {
             return []
         }
 
