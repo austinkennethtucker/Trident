@@ -95,6 +95,7 @@ jobs:
       - build-nix
       - build-macos
       - build-macos-freetype
+      - test-release-scripts
       - build-snap
       - build-windows
       - test
@@ -166,6 +167,15 @@ jobs:
 
       - name: Build Benchmarks
         run: nix develop -c zig build -Demit-bench
+
+  test-release-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Test release helper scripts
+        run: python3 .github/scripts/test_update_homebrew_cask.py
 
   build-examples:
     strategy:

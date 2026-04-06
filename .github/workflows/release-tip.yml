@@ -455,6 +455,7 @@ jobs:
           destination-dir: ./
 
       - name: Verify Homebrew tap token
+        if: github.ref_name == 'main'
         env:
           SUBDEPTH_RELEASE_TOKEN: ${{ secrets.SUBDEPTH_RELEASE_TOKEN }}
         run: |
@@ -465,14 +466,19 @@ jobs:
 
       - name: Resolve Homebrew cask metadata
         id: homebrew
+        if: github.ref_name == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           asset_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/tip" --jq '.assets[] | select(.name=="Trident-Dev.dmg") | .id')
-          test -n "$asset_id"
+          if [ -z "$asset_id" ]; then
+            echo "::error::Could not find Trident-Dev.dmg asset ID on the tip release."
+            exit 1
+          fi
           echo "asset_id=$asset_id" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Homebrew tap
+        if: github.ref_name == 'main'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: subdepthtech/homebrew-trident
@@ -482,6 +488,7 @@ jobs:
           persist-credentials: false
 
       - name: Update dev Homebrew cask
+        if: github.ref_name == 'main'
         run: |
           python3 .github/scripts/update_homebrew_cask.py \
             --cask-file homebrew-trident/Casks/trident-dev.rb \
@@ -490,6 +497,7 @@ jobs:
             --sha256 ":no_check"
 
       - name: Commit and push dev Homebrew cask
+        if: github.ref_name == 'main'
         env:
           SUBDEPTH_RELEASE_TOKEN: ${{ secrets.SUBDEPTH_RELEASE_TOKEN }}
         run: |

@@ -436,9 +436,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           asset_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${GHOSTTY_VERSION}" --jq '.assets[] | select(.name=="Trident.dmg") | .id')
-          sha256=$(shasum -a 256 Trident.dmg | awk '{print $1}')
-          test -n "$asset_id"
-          test -n "$sha256"
+          if [ -z "$asset_id" ]; then
+            echo "::error::Could not find Trident.dmg asset ID on release v${GHOSTTY_VERSION}."
+            exit 1
+          fi
+
+          dmg_path="blob/${GHOSTTY_VERSION}/Trident.dmg"
+          if [ ! -f "$dmg_path" ]; then
+            echo "::error::Expected DMG at $dmg_path before computing the stable cask checksum."
+            exit 1
+          fi
+
+          sha256=$(shasum -a 256 "$dmg_path" | awk '{print $1}')
+          if [ -z "$sha256" ]; then
+            echo "::error::Could not compute SHA-256 for $dmg_path."
+            exit 1
+          fi
           echo "asset_id=$asset_id" >> "$GITHUB_OUTPUT"
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
 
