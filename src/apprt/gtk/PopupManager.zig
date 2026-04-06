@@ -21,25 +21,19 @@ const log = std.log.scoped(.popup_manager);
 /// The manager tracks which windows exist for each profile and handles
 /// the toggle/show/hide lifecycle.
 pub const PopupManager = struct {
+    const WindowEntry = struct {
+        name: [:0]const u8,
+        weak_ref: WeakRef(Window) = .empty,
+        stale: bool = false,
+
+        fn deinit(self: *const WindowEntry, alloc: Allocator) void {
+            alloc.free(self.name);
+        }
+    };
+
     alloc: Allocator,
-
-    /// Popup profile names (owned copies from config).
-    profile_names: std.ArrayListUnmanaged([:0]const u8) = .empty,
-
-    /// Popup profile data, parallel to profile_names.
-    profiles: std.ArrayListUnmanaged(popupmod.PopupProfile) = .empty,
-
-    /// Tracked popup window instances. Each entry stores the owned name
-    /// (sentinel-terminated) and a weak reference to the Window. We use a
-    /// simple parallel-array approach to avoid hashmap key ownership complexity.
-    /// WeakRef ensures we don't hold dangling pointers when windows are
-    /// destroyed externally (e.g., user closes window, GTK shutdown order).
-    window_names: std.ArrayListUnmanaged([:0]const u8) = .empty,
-    window_refs: std.ArrayListUnmanaged(WeakRef(Window)) = .empty,
-    /// Parallel to window_names/window_refs: true if the profile config
-    /// changed since the window was created. Stale windows are destroyed
-    /// and recreated on next toggle when hidden.
-    window_stale: std.ArrayListUnmanaged(bool) = .empty,
+    profiles: std.ArrayListUnmanaged(popupmod.NamedProfile) = .empty,
+    windows: std.ArrayListUnmanaged(WindowEntry) = .empty,
 
     pub fn init(alloc: Allocator) PopupManager {
         return .{
@@ -48,97 +42,49 @@ pub const PopupManager = struct {
     }
 
     pub fn deinit(self: *PopupManager) void {
-        for (self.profile_names.items) |name| self.alloc.free(name);
-        for (self.profiles.items) |profile| {
-            if (profile.keybind) |kb| self.alloc.free(kb);
-            if (profile.command) |cmd| self.alloc.free(cmd);
-            if (profile.cwd) |cwd| self.alloc.free(cwd);
-        }
-        self.profile_names.deinit(self.alloc);
+        for (self.profiles.items) |entry| entry.deinit(self.alloc);
         self.profiles.deinit(self.alloc);
 
-        for (self.window_names.items) |name| self.alloc.free(name);
-        self.window_names.deinit(self.alloc);
-        self.window_refs.deinit(self.alloc);
-        self.window_stale.deinit(self.alloc);
+        for (self.windows.items) |entry| entry.deinit(self.alloc);
+        self.windows.deinit(self.alloc);
     }
 
     /// Load popup profiles from the config. This replaces any previously
     /// stored profiles. It does NOT destroy existing windows -- those will
     /// be lazily cleaned up on next toggle/show/hide.
     pub fn loadConfig(self: *PopupManager, config: *const configpkg.Config) void {
-        // Free old name strings AND profile string fields since we own them
-        for (self.profile_names.items) |name| self.alloc.free(name);
-        for (self.profiles.items) |profile| {
-            if (profile.keybind) |kb| self.alloc.free(kb);
-            if (profile.command) |cmd| self.alloc.free(cmd);
-            if (profile.cwd) |cwd| self.alloc.free(cwd);
-        }
-        self.profile_names.clearRetainingCapacity();
+        for (self.profiles.items) |entry| entry.deinit(self.alloc);
         self.profiles.clearRetainingCapacity();
 
-        for (config.popup.names.items, config.popup.profiles.items) |name, profile| {
-            const duped = self.alloc.dupeZ(u8, name) catch |err| {
-                log.warn("failed to duplicate popup profile name: {}", .{err});
+        for (config.popup.entries.items) |entry| {
+            const cloned = popupmod.NamedProfile.init(
+                self.alloc,
+                entry.named_profile.name,
+                entry.named_profile.profile,
+            ) catch |err| {
+                log.warn("failed to duplicate popup profile '{s}': {}", .{
+                    entry.named_profile.name,
+                    err,
+                });
                 continue;
             };
 
-            // Deep-copy the profile so we own the string fields (cwd, command).
-            // The config may be freed after loadConfig returns, so borrowing
-            // slices from it would be a use-after-free.
-            var owned_profile = profile;
-            if (profile.command) |cmd| {
-                owned_profile.command = self.alloc.dupe(u8, cmd) catch |err| {
-                    log.warn("failed to duplicate popup command: {}", .{err});
-                    self.alloc.free(duped);
-                    continue;
-                };
-            }
-            if (profile.cwd) |cwd| {
-                owned_profile.cwd = self.alloc.dupe(u8, cwd) catch |err| {
-                    log.warn("failed to duplicate popup cwd: {}", .{err});
-                    if (owned_profile.command) |cmd| self.alloc.free(cmd);
-                    self.alloc.free(duped);
-                    continue;
-                };
-            }
-            if (profile.keybind) |kb| {
-                owned_profile.keybind = self.alloc.dupe(u8, kb) catch |err| {
-                    log.warn("failed to duplicate popup keybind: {}", .{err});
-                    if (owned_profile.command) |cmd| self.alloc.free(cmd);
-                    if (owned_profile.cwd) |cwd| self.alloc.free(cwd);
-                    self.alloc.free(duped);
-                    continue;
-                };
-            }
-
-            self.profile_names.append(self.alloc, duped) catch |err| {
-                log.warn("failed to store popup profile name: {}", .{err});
-                if (owned_profile.keybind) |kb| self.alloc.free(kb);
-                if (owned_profile.command) |cmd| self.alloc.free(cmd);
-                if (owned_profile.cwd) |cwd| self.alloc.free(cwd);
-                self.alloc.free(duped);
-                continue;
-            };
-            self.profiles.append(self.alloc, owned_profile) catch |err| {
-                log.warn("failed to store popup profile: {}", .{err});
-                if (self.profile_names.pop()) |popped| {
-                    const plain: []const u8 = popped;
-                    self.alloc.free(plain);
-                }
-                if (owned_profile.keybind) |kb| self.alloc.free(kb);
-                if (owned_profile.command) |cmd| self.alloc.free(cmd);
-                if (owned_profile.cwd) |cwd| self.alloc.free(cwd);
+            self.profiles.append(self.alloc, cloned) catch |err| {
+                log.warn("failed to store popup profile '{s}': {}", .{
+                    entry.named_profile.name,
+                    err,
+                });
+                cloned.deinit(self.alloc);
                 continue;
             };
         }
 
-        log.debug("loaded {} popup profiles", .{self.profile_names.items.len});
+        log.debug("loaded {} popup profiles", .{self.profiles.items.len});
     }
 
     /// Toggle a popup by name: create+show if not exists, show if hidden,
     /// hide if visible.
-    pub fn toggle(self: *PopupManager, name: []const u8) bool {
+    pub fn toggle(self: *PopupManager, name: []const u8, inherited_cwd: ?[:0]const u8) bool {
         if (self.findValidWindow(name)) |win| {
             defer win.unref();
             const widget = win.as(gtk.Widget);
@@ -148,7 +94,7 @@ pub const PopupManager = struct {
                 // If stale (config changed), destroy and recreate
                 if (self.isWindowStale(name)) {
                     self.destroyWindow(name);
-                    return self.createAndShow(name);
+                    return self.createAndShow(name, inherited_cwd);
                 }
                 widget.setVisible(1);
                 gtk.Window.present(win.as(gtk.Window));
@@ -156,12 +102,12 @@ pub const PopupManager = struct {
             }
         }
 
-        return self.createAndShow(name);
+        return self.createAndShow(name, inherited_cwd);
     }
 
     /// Show a popup by name: create+show if not exists, show if hidden,
     /// no-op if already visible.
-    pub fn show(self: *PopupManager, name: []const u8) bool {
+    pub fn show(self: *PopupManager, name: []const u8, inherited_cwd: ?[:0]const u8) bool {
         if (self.findValidWindow(name)) |win| {
             defer win.unref();
             const widget = win.as(gtk.Widget);
@@ -169,21 +115,21 @@ pub const PopupManager = struct {
             // If stale (config changed), destroy and recreate
             if (self.isWindowStale(name)) {
                 self.destroyWindow(name);
-                return self.createAndShow(name);
+                return self.createAndShow(name, inherited_cwd);
             }
             widget.setVisible(1);
             gtk.Window.present(win.as(gtk.Window));
             return true;
         }
 
-        return self.createAndShow(name);
+        return self.createAndShow(name, inherited_cwd);
     }
 
     /// Hide a popup by name. If persist=false in the profile, destroy
     /// the window instead of just hiding it.
     pub fn hide(self: *PopupManager, name: []const u8) bool {
         const idx = self.findWindowIndex(name) orelse return false;
-        const win = self.window_refs.items[idx].get() orelse {
+        const win = self.windows.items[idx].weak_ref.get() orelse {
             // Window was destroyed externally, clean up the stale entry.
             self.removeWindowAt(idx);
             return false;
@@ -213,14 +159,12 @@ pub const PopupManager = struct {
     pub fn updateProfileConfigs(self: *PopupManager, config: *const configpkg.Config) void {
         // 1. Destroy windows for truly removed profiles only
         var i: usize = 0;
-        while (i < self.window_names.items.len) {
-            const wname = self.window_names.items[i];
-            const still_exists = for (config.popup.names.items) |cname| {
-                if (std.mem.eql(u8, wname, cname)) break true;
-            } else false;
+        while (i < self.windows.items.len) {
+            const wname = self.windows.items[i].name;
+            const still_exists = config.popup.get(wname) != null;
 
             if (!still_exists) {
-                if (self.window_refs.items[i].get()) |win| {
+                if (self.windows.items[i].weak_ref.get()) |win| {
                     defer win.unref();
                     win.as(gtk.Window).destroy();
                 }
@@ -236,8 +180,8 @@ pub const PopupManager = struct {
         // 2. Mark existing windows as stale — they'll be destroyed and
         //    recreated on next toggle if hidden, or kept alive if visible
         //    until the user toggles them.
-        for (self.window_names.items) |wname| {
-            self.markStaleIfChanged(wname, config);
+        for (self.windows.items) |window_entry| {
+            self.markStaleIfChanged(window_entry.name, config);
         }
 
         // 3. Reload stored profiles from new config
@@ -246,20 +190,18 @@ pub const PopupManager = struct {
 
     /// Hide (or destroy) all popup windows. Called during quit.
     pub fn hideAll(self: *PopupManager) void {
-        for (self.window_refs.items) |*ref| {
-            if (ref.get()) |win| {
+        for (self.windows.items) |window_entry| {
+            if (window_entry.weak_ref.get()) |win| {
                 defer win.unref();
                 win.as(gtk.Window).destroy();
             }
         }
-        for (self.window_names.items) |name| self.alloc.free(name);
-        self.window_names.clearRetainingCapacity();
-        self.window_refs.clearRetainingCapacity();
-        self.window_stale.clearRetainingCapacity();
+        for (self.windows.items) |window_entry| window_entry.deinit(self.alloc);
+        self.windows.clearRetainingCapacity();
     }
 
     /// Create a new popup window and show it.
-    fn createAndShow(self: *PopupManager, name: []const u8) bool {
+    fn createAndShow(self: *PopupManager, name: []const u8, inherited_cwd: ?[:0]const u8) bool {
         // Get the GIO application (which is our GhosttyApplication)
         const gio_app = gio.Application.getDefault() orelse {
             log.warn("no default application available for popup creation", .{});
@@ -297,28 +239,12 @@ pub const PopupManager = struct {
         var weak_ref: WeakRef(Window) = .empty;
         weak_ref.set(win);
 
-        self.window_names.append(self.alloc, name_z) catch |err| {
-            log.warn("failed to track popup window name: {}", .{err});
+        self.windows.append(self.alloc, .{
+            .name = name_z,
+            .weak_ref = weak_ref,
+        }) catch |err| {
+            log.warn("failed to track popup window: {}", .{err});
             self.alloc.free(name_z);
-            win.as(gtk.Window).destroy();
-            return false;
-        };
-        self.window_refs.append(self.alloc, weak_ref) catch |err| {
-            log.warn("failed to track popup window ref: {}", .{err});
-            if (self.window_names.pop()) |popped_name| {
-                const plain: []const u8 = popped_name;
-                self.alloc.free(plain);
-            }
-            win.as(gtk.Window).destroy();
-            return false;
-        };
-        self.window_stale.append(self.alloc, false) catch |err| {
-            log.warn("failed to track popup stale flag: {}", .{err});
-            if (self.window_names.pop()) |popped_name| {
-                const plain: []const u8 = popped_name;
-                self.alloc.free(plain);
-            }
-            _ = self.window_refs.pop();
             win.as(gtk.Window).destroy();
             return false;
         };
@@ -332,48 +258,17 @@ pub const PopupManager = struct {
             .{},
         );
 
-        // Resolve working directory: explicit cwd > focused surface pwd > none.
-        // Track ownership so we only free allocations we made (not borrows from
-        // surface.getPwd() which is managed by the surface).
-        var wd_owned: bool = false;
-        const working_directory: ?[:0]const u8 = wd: {
-            if (profile.cwd) |cwd| {
-                wd_owned = true;
-                // Only expand bare ~ or ~/... (not ~otheruser)
-                if (cwd.len == 1 and cwd[0] == '~' or
-                    (cwd.len > 1 and cwd[0] == '~' and cwd[1] == '/'))
-                {
-                    if (std.posix.getenv("HOME")) |home| {
-                        break :wd std.fmt.allocPrintSentinel(
-                            self.alloc,
-                            "{s}{s}",
-                            .{ home, cwd[1..] },
-                            0,
-                        ) catch break :wd null;
-                    }
-                }
-                break :wd self.alloc.dupeZ(u8, cwd) catch break :wd null;
-            }
-            // Try to inherit from focused surface (borrowed, not owned)
-            const list = gtk.Window.listToplevels();
-            defer list.free();
-            var node_: ?*glib.List = list;
-            while (node_) |node| : (node_ = node.f_next) {
-                const gtk_window: *gtk.Window = @ptrCast(@alignCast(node.f_data orelse continue));
-                if (gtk_window.isActive() == 0) continue;
-                const ghostty_win = gobject.ext.cast(Window, gtk_window) orelse continue;
-                const surface = ghostty_win.getActiveSurface() orelse continue;
-                break :wd surface.getPwd();
-            }
-            break :wd null;
-        };
-        defer if (wd_owned) {
-            if (working_directory) |wd| self.alloc.free(wd);
-        };
+        const working_directory = popupmod.resolveWorkingDirectory(
+            self.alloc,
+            profile.cwd,
+            inherited_cwd,
+            std.posix.getenv("HOME"),
+        ) catch .{};
+        defer working_directory.deinit(self.alloc);
 
         // Create initial tab
         win.newTabForWindow(null, .{
-            .working_directory = working_directory,
+            .working_directory = working_directory.path,
             .background_opacity = profile.opacity,
             .window_padding_color = .extend,
         });
@@ -420,7 +315,7 @@ pub const PopupManager = struct {
     /// window doesn't exist or was destroyed externally.
     fn findValidWindow(self: *PopupManager, name: []const u8) ?*Window {
         const idx = self.findWindowIndex(name) orelse return null;
-        const win = self.window_refs.items[idx].get() orelse {
+        const win = self.windows.items[idx].weak_ref.get() orelse {
             // Window was destroyed externally, clean up the stale entry.
             self.removeWindowAt(idx);
             return null;
@@ -429,25 +324,21 @@ pub const PopupManager = struct {
     }
 
     fn findWindowIndex(self: *const PopupManager, name: []const u8) ?usize {
-        for (self.window_names.items, 0..) |n, i| {
-            if (std.mem.eql(u8, n, name)) return i;
+        for (self.windows.items, 0..) |window_entry, i| {
+            if (std.mem.eql(u8, window_entry.name, name)) return i;
         }
         return null;
     }
 
     fn removeWindowAt(self: *PopupManager, idx: usize) void {
-        const name = self.window_names.orderedRemove(idx);
-        _ = self.window_refs.orderedRemove(idx);
-        _ = self.window_stale.orderedRemove(idx);
-        // Cast sentinel-terminated slice to plain slice for Allocator.free
-        const plain: []const u8 = name;
-        self.alloc.free(plain);
+        const window_entry = self.windows.orderedRemove(idx);
+        window_entry.deinit(self.alloc);
     }
 
     /// Check if a tracked window is marked stale (config changed since creation).
     fn isWindowStale(self: *const PopupManager, name: []const u8) bool {
         const idx = self.findWindowIndex(name) orelse return false;
-        return self.window_stale.items[idx];
+        return self.windows.items[idx].stale;
     }
 
     /// Mark a window stale if its profile differs from the new config.
@@ -458,29 +349,9 @@ pub const PopupManager = struct {
         const win_idx = self.findWindowIndex(name) orelse return;
         const old_profile = self.getProfile(name) orelse return;
 
-        // Find the new profile in config
-        for (config.popup.names.items, config.popup.profiles.items) |cname, new_profile| {
-            if (std.mem.eql(u8, name, cname)) {
-                // Compare all fields — non-string enums/ints/bools
-                if (old_profile.position != new_profile.position or
-                    old_profile.anchor != new_profile.anchor or
-                    !optionalDimensionEqual(old_profile.x, new_profile.x) or
-                    !optionalDimensionEqual(old_profile.y, new_profile.y) or
-                    old_profile.width.value != new_profile.width.value or
-                    old_profile.width.unit != new_profile.width.unit or
-                    old_profile.height.value != new_profile.height.value or
-                    old_profile.height.unit != new_profile.height.unit or
-                    old_profile.autohide != new_profile.autohide or
-                    old_profile.persist != new_profile.persist or
-                    !optionalF64Equal(old_profile.opacity, new_profile.opacity) or
-                    !optionalSliceEqual(old_profile.command, new_profile.command) or
-                    !optionalSliceEqual(old_profile.cwd, new_profile.cwd) or
-                    !optionalSliceEqual(old_profile.keybind, new_profile.keybind))
-                {
-                    self.window_stale.items[win_idx] = true;
-                    return;
-                }
-                return; // Not changed
+        if (config.popup.get(name)) |new_profile| {
+            if (popupmod.profileChanged(old_profile, new_profile)) {
+                self.windows.items[win_idx].stale = true;
             }
         }
     }
@@ -488,7 +359,7 @@ pub const PopupManager = struct {
     /// Destroy a tracked popup window by name.
     fn destroyWindow(self: *PopupManager, name: []const u8) void {
         const idx = self.findWindowIndex(name) orelse return;
-        if (self.window_refs.items[idx].get()) |win| {
+        if (self.windows.items[idx].weak_ref.get()) |win| {
             defer win.unref();
             win.as(gtk.Window).destroy();
         }
@@ -496,27 +367,9 @@ pub const PopupManager = struct {
     }
 
     fn getProfile(self: *const PopupManager, name: []const u8) ?popupmod.PopupProfile {
-        for (self.profile_names.items, self.profiles.items) |n, p| {
-            if (std.mem.eql(u8, n, name)) return p;
+        for (self.profiles.items) |entry| {
+            if (std.mem.eql(u8, entry.name, name)) return entry.profile;
         }
         return null;
     }
 };
-
-fn optionalDimensionEqual(a: ?popupmod.Dimension, b: ?popupmod.Dimension) bool {
-    if (a == null and b == null) return true;
-    if (a == null or b == null) return false;
-    return a.?.value == b.?.value and a.?.unit == b.?.unit;
-}
-
-fn optionalSliceEqual(a: ?[]const u8, b: ?[]const u8) bool {
-    if (a == null and b == null) return true;
-    if (a == null or b == null) return false;
-    return std.mem.eql(u8, a.?, b.?);
-}
-
-fn optionalF64Equal(a: ?f64, b: ?f64) bool {
-    if (a == null and b == null) return true;
-    if (a == null or b == null) return false;
-    return a.? == b.?;
-}

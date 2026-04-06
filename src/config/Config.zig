@@ -4913,23 +4913,7 @@ pub fn migrateQuickTerminalToPopup(self: *Config, alloc: Allocator) !void {
         },
     }
 
-    const name_z = try alloc.dupeZ(u8, popupmod.quick_profile_name);
-    try self.popup.names.append(alloc, name_z);
-    try self.popup.profiles.append(alloc, profile);
-
-    // Keep C-view arrays in sync (mirroring parseCLI pattern).
-    try self.popup.names_c.append(alloc, name_z.ptr);
-    const cmd_z: ?[*:0]const u8 = if (profile.command) |cmd|
-        (try alloc.dupeZ(u8, cmd)).ptr
-    else
-        null;
-    const cwd_z: ?[*:0]const u8 = if (profile.cwd) |cwd|
-        (try alloc.dupeZ(u8, cwd)).ptr
-    else
-        null;
-    try self.popup.commands_z.append(alloc, cmd_z);
-    try self.popup.cwd_z.append(alloc, cwd_z);
-    try self.popup.profiles_c.append(alloc, profile.cval(cmd_z, cwd_z));
+    try self.popup.upsert(alloc, popupmod.quick_profile_name, profile);
 }
 
 /// Convert a legacy QuickTerminalSize.Size to a popup Dimension.
@@ -4970,7 +4954,9 @@ pub fn synthesizePopupKeybinds(self: *Config, alloc: Allocator) !void {
     var popup_binds: std.ArrayListUnmanaged(PopupBind) = .empty;
 
     // First pass: collect all popup bindings; last definition wins.
-    for (self.popup.names.items, self.popup.profiles.items) |name, profile| {
+    for (self.popup.entries.items) |entry| {
+        const name = entry.named_profile.name;
+        const profile = entry.named_profile.profile;
         const keybind_str = profile.keybind orelse continue;
 
         // Build the full binding string, e.g. "ctrl+grave_accent=toggle_popup:quick"
@@ -9287,20 +9273,53 @@ pub const RepeatableCommand = struct {
 pub const RepeatablePopup = struct {
     const Self = @This();
 
-    names: std.ArrayListUnmanaged([:0]const u8) = .empty,
-    profiles: std.ArrayListUnmanaged(popupmod.PopupProfile) = .empty,
+    const Entry = struct {
+        named_profile: popupmod.NamedProfile,
+        c_profile: popupmod.PopupProfile.C,
+        command_z: ?[*:0]const u8 = null,
+        cwd_z: ?[*:0]const u8 = null,
 
-    /// Parallel C-API arrays, maintained in sync with names/profiles.
+        fn init(alloc: Allocator, name: []const u8, profile: popupmod.PopupProfile) !Entry {
+            var entry: Entry = .{
+                .named_profile = try .init(alloc, name, profile),
+                .c_profile = undefined,
+            };
+            errdefer entry.named_profile.deinit(alloc);
+
+            if (entry.named_profile.profile.command) |command| {
+                entry.command_z = (try alloc.dupeZ(u8, command)).ptr;
+            }
+            errdefer if (entry.command_z) |command| alloc.free(std.mem.sliceTo(command, 0));
+
+            if (entry.named_profile.profile.cwd) |cwd| {
+                entry.cwd_z = (try alloc.dupeZ(u8, cwd)).ptr;
+            }
+            errdefer if (entry.cwd_z) |cwd| alloc.free(std.mem.sliceTo(cwd, 0));
+
+            entry.syncCProfile();
+            return entry;
+        }
+
+        fn clone(self: Entry, alloc: Allocator) !Entry {
+            return init(alloc, self.named_profile.name, self.named_profile.profile);
+        }
+
+        fn deinit(self: *const Entry, alloc: Allocator) void {
+            self.named_profile.deinit(alloc);
+            if (self.command_z) |command| alloc.free(std.mem.sliceTo(command, 0));
+            if (self.cwd_z) |cwd| alloc.free(std.mem.sliceTo(cwd, 0));
+        }
+
+        fn syncCProfile(self: *Entry) void {
+            self.c_profile = self.named_profile.profile.cval(self.command_z, self.cwd_z);
+        }
+    };
+
+    entries: std.ArrayListUnmanaged(Entry) = .empty,
+
+    /// Derived C-API arrays, maintained in sync with entries.
     names_c: std.ArrayListUnmanaged([*:0]const u8) = .empty,
     profiles_c: std.ArrayListUnmanaged(popupmod.PopupProfile.C) = .empty,
-
-    /// Sentinel-terminated copies of command strings for the C API.
-    /// Indexed in parallel with names/profiles; null when no command.
-    commands_z: std.ArrayListUnmanaged(?[*:0]const u8) = .empty,
-
-    /// Sentinel-terminated copies of CWD paths for the C API.
-    /// Indexed in parallel with names/profiles; null when no cwd.
-    cwd_z: std.ArrayListUnmanaged(?[*:0]const u8) = .empty,
 
     /// ghostty_config_popup_list_s
     pub const C = extern struct {
@@ -9324,31 +9343,10 @@ pub const RepeatablePopup = struct {
     ) !void {
         const input = input_ orelse "";
         if (input.len == 0) {
-            // Free all owned strings before clearing arrays.
-            for (self.names.items) |name| alloc.free(name);
-            for (self.profiles.items) |profile| {
-                if (profile.keybind) |kb| alloc.free(kb);
-                if (profile.command) |cmd| alloc.free(cmd);
-                if (profile.cwd) |cwd| alloc.free(cwd);
-            }
-            for (self.commands_z.items) |cmd_z| {
-                if (cmd_z) |ptr| {
-                    const slice = std.mem.sliceTo(ptr, 0);
-                    alloc.free(slice);
-                }
-            }
-            for (self.cwd_z.items) |cz| {
-                if (cz) |ptr| {
-                    const slice = std.mem.sliceTo(ptr, 0);
-                    alloc.free(slice);
-                }
-            }
-            self.names.clearRetainingCapacity();
-            self.profiles.clearRetainingCapacity();
+            for (self.entries.items) |entry| entry.deinit(alloc);
+            self.entries.clearRetainingCapacity();
             self.names_c.clearRetainingCapacity();
             self.profiles_c.clearRetainingCapacity();
-            self.commands_z.clearRetainingCapacity();
-            self.cwd_z.clearRetainingCapacity();
             return;
         }
 
@@ -9371,58 +9369,49 @@ pub const RepeatablePopup = struct {
             profile.opacity = std.math.clamp(o, 0.0, 1.0);
         }
 
-        // Create sentinel-terminated copy of the command for C API.
-        const cmd_z: ?[*:0]const u8 = if (profile.command) |cmd|
-            (try alloc.dupeZ(u8, cmd)).ptr
-        else
-            null;
+        try self.upsert(alloc, name_raw, profile);
+    }
 
-        // Create sentinel-terminated copy of the cwd for C API.
-        const cwd_z_val: ?[*:0]const u8 = if (profile.cwd) |cwd|
-            (try alloc.dupeZ(u8, cwd)).ptr
-        else
-            null;
+    pub fn upsert(
+        self: *Self,
+        alloc: Allocator,
+        name: []const u8,
+        profile: popupmod.PopupProfile,
+    ) !void {
+        if (!popupmod.isValidName(name)) return error.InvalidValue;
 
-        const name = try alloc.dupeZ(u8, name_raw);
+        var entry = try Entry.init(alloc, name, profile);
+        var entry_owned = true;
+        errdefer if (entry_owned) entry.deinit(alloc);
 
         // Last definition wins: if a popup with this name already
         // exists, replace its profile instead of appending a duplicate.
-        for (self.names.items, 0..) |existing, i| {
-            if (std.mem.eql(u8, existing, name_raw)) {
-                // Free old profile strings before overwriting.
-                if (self.profiles.items[i].keybind) |kb| alloc.free(kb);
-                if (self.profiles.items[i].command) |cmd| alloc.free(cmd);
-                if (self.profiles.items[i].cwd) |old_cwd| alloc.free(old_cwd);
-                if (self.commands_z.items[i]) |old_cmd| {
-                    const slice = std.mem.sliceTo(old_cmd, 0);
-                    alloc.free(slice);
-                }
-                if (self.cwd_z.items[i]) |old_cwd_z| {
-                    const slice = std.mem.sliceTo(old_cwd_z, 0);
-                    alloc.free(slice);
-                }
-                // Free the new name since we're not using it.
-                alloc.free(name);
-                self.profiles.items[i] = profile;
-                self.commands_z.items[i] = cmd_z;
-                self.cwd_z.items[i] = cwd_z_val;
-                self.profiles_c.items[i] = profile.cval(cmd_z, cwd_z_val);
+        for (self.entries.items, 0..) |*existing, i| {
+            if (std.mem.eql(u8, existing.named_profile.name, name)) {
+                const old_entry = existing.*;
+                existing.* = entry;
+                entry_owned = false;
+                self.names_c.items[i] = entry.named_profile.name.ptr;
+                self.profiles_c.items[i] = entry.c_profile;
+                old_entry.deinit(alloc);
                 return;
             }
         }
 
-        try self.names.append(alloc, name);
-        try self.profiles.append(alloc, profile);
-        try self.names_c.append(alloc, name.ptr);
-        try self.profiles_c.append(alloc, profile.cval(cmd_z, cwd_z_val));
-        try self.commands_z.append(alloc, cmd_z);
-        try self.cwd_z.append(alloc, cwd_z_val);
+        try self.entries.append(alloc, entry);
+        entry_owned = false;
+        errdefer if (self.entries.pop()) |rolled_back| rolled_back.deinit(alloc);
+
+        try self.names_c.append(alloc, entry.named_profile.name.ptr);
+        errdefer _ = self.names_c.pop();
+
+        try self.profiles_c.append(alloc, entry.c_profile);
     }
 
     /// Look up a popup profile by name.
     pub fn get(self: *const Self, name: []const u8) ?popupmod.PopupProfile {
-        for (self.names.items, 0..) |n, i| {
-            if (std.mem.eql(u8, n, name)) return self.profiles.items[i];
+        for (self.entries.items) |entry| {
+            if (std.mem.eql(u8, entry.named_profile.name, name)) return entry.named_profile.profile;
         }
         return null;
     }
@@ -9431,65 +9420,20 @@ pub const RepeatablePopup = struct {
     pub fn clone(self: *const Self, alloc: Allocator) !Self {
         var new: Self = .{};
         errdefer new.deinit(alloc);
-        for (self.names.items) |name| {
-            const duped = try alloc.dupeZ(u8, name);
-            try new.names.append(alloc, duped);
-            try new.names_c.append(alloc, duped.ptr);
-        }
-        for (self.profiles.items) |profile| {
-            var cloned_profile = profile;
-            // Deep-copy string fields so the clone doesn't alias source memory.
-            if (profile.keybind) |kb| {
-                cloned_profile.keybind = try alloc.dupe(u8, kb);
-            }
-            if (profile.command) |cmd| {
-                cloned_profile.command = try alloc.dupe(u8, cmd);
-            }
-            if (profile.cwd) |cwd| {
-                cloned_profile.cwd = try alloc.dupe(u8, cwd);
-            }
-            try new.profiles.append(alloc, cloned_profile);
-            // Re-create sentinel-terminated command copy for the clone.
-            const new_cmd_z: ?[*:0]const u8 = if (cloned_profile.command) |cmd|
-                (try alloc.dupeZ(u8, cmd)).ptr
-            else
-                null;
-            const new_cwd_z: ?[*:0]const u8 = if (cloned_profile.cwd) |cwd|
-                (try alloc.dupeZ(u8, cwd)).ptr
-            else
-                null;
-            try new.commands_z.append(alloc, new_cmd_z);
-            try new.cwd_z.append(alloc, new_cwd_z);
-            try new.profiles_c.append(alloc, cloned_profile.cval(new_cmd_z, new_cwd_z));
+        for (self.entries.items) |entry| {
+            const cloned = try entry.clone(alloc);
+            try new.entries.append(alloc, cloned);
+            try new.names_c.append(alloc, cloned.named_profile.name.ptr);
+            try new.profiles_c.append(alloc, cloned.c_profile);
         }
         return new;
     }
 
     pub fn deinit(self: *Self, alloc: Allocator) void {
-        for (self.names.items) |name| alloc.free(name);
-        for (self.profiles.items) |profile| {
-            if (profile.keybind) |kb| alloc.free(kb);
-            if (profile.command) |cmd| alloc.free(cmd);
-            if (profile.cwd) |cwd| alloc.free(cwd);
-        }
-        for (self.commands_z.items) |cmd_z| {
-            if (cmd_z) |ptr| {
-                const slice = std.mem.sliceTo(ptr, 0);
-                alloc.free(slice);
-            }
-        }
-        for (self.cwd_z.items) |cz| {
-            if (cz) |ptr| {
-                const slice = std.mem.sliceTo(ptr, 0);
-                alloc.free(slice);
-            }
-        }
-        self.names.deinit(alloc);
-        self.profiles.deinit(alloc);
+        for (self.entries.items) |entry| entry.deinit(alloc);
+        self.entries.deinit(alloc);
         self.names_c.deinit(alloc);
         self.profiles_c.deinit(alloc);
-        self.commands_z.deinit(alloc);
-        self.cwd_z.deinit(alloc);
     }
 
     /// Used by Formatter.
@@ -9500,23 +9444,27 @@ pub const RepeatablePopup = struct {
         formatter: formatterpkg.EntryFormatter,
     ) !void {
         _ = formatter;
-        if (self.names.items.len > 0) {
+        if (self.entries.items.len > 0) {
             log.warn(
                 "popup config entries cannot be serialized yet; {d} entries dropped",
-                .{self.names.items.len},
+                .{self.entries.items.len},
             );
         }
     }
 
     /// Compare if two values are equal. Required by Config.
     pub fn equal(a: Self, b: Self) bool {
-        if (a.names.items.len != b.names.items.len) return false;
-        for (a.names.items, a.profiles.items, 0..) |name_a, prof_a, i| {
-            const name_b = b.names.items[i];
-            if (!std.mem.eql(u8, name_a, name_b)) return false;
+        if (a.entries.items.len != b.entries.items.len) return false;
+        for (a.entries.items, 0..) |entry_a, i| {
+            const entry_b = b.entries.items[i];
+            if (!std.mem.eql(u8, entry_a.named_profile.name, entry_b.named_profile.name)) return false;
             // Use deepEqual for content-based comparison of profile fields,
             // including optional string fields (keybind, command).
-            if (!deepEqual(popupmod.PopupProfile, prof_a, b.profiles.items[i])) return false;
+            if (!deepEqual(
+                popupmod.PopupProfile,
+                entry_a.named_profile.profile,
+                entry_b.named_profile.profile,
+            )) return false;
         }
         return true;
     }
@@ -11516,7 +11464,7 @@ test "popup: basic parsing via CLI" {
     try popups.parseCLI(alloc, "myterm:width:80%,height:50%");
     try popups.parseCLI(alloc, "other:width:400,height:300");
 
-    try testing.expectEqual(@as(usize, 2), popups.names.items.len);
+    try testing.expectEqual(@as(usize, 2), popups.entries.items.len);
 
     const p1 = popups.get("myterm");
     try testing.expect(p1 != null);
@@ -11548,7 +11496,7 @@ test "popup: duplicate name replacement" {
     try popups.parseCLI(alloc, "myterm:width:100%");
 
     // Should only have one profile named "myterm"
-    try testing.expectEqual(@as(usize, 1), popups.names.items.len);
+    try testing.expectEqual(@as(usize, 1), popups.entries.items.len);
 
     // Should be the second definition (100%)
     const profile = popups.get("myterm");
@@ -11567,11 +11515,11 @@ test "popup: parseCLI empty clears profiles" {
     var popups: RepeatablePopup = .{};
     try popups.parseCLI(alloc, "myterm:width:80%");
     try popups.parseCLI(alloc, "other:width:50%");
-    try testing.expectEqual(@as(usize, 2), popups.names.items.len);
+    try testing.expectEqual(@as(usize, 2), popups.entries.items.len);
 
     // Clear with empty string
     try popups.parseCLI(alloc, "");
-    try testing.expectEqual(@as(usize, 0), popups.names.items.len);
+    try testing.expectEqual(@as(usize, 0), popups.entries.items.len);
 }
 
 test "popup: invalid name rejected" {
@@ -11585,7 +11533,7 @@ test "popup: invalid name rejected" {
     // Names with spaces or special chars should be rejected
     try testing.expectError(error.InvalidValue, popups.parseCLI(alloc, "bad name:width:80%"));
     try testing.expectError(error.InvalidValue, popups.parseCLI(alloc, "bad@name:width:80%"));
-    try testing.expectEqual(@as(usize, 0), popups.names.items.len);
+    try testing.expectEqual(@as(usize, 0), popups.entries.items.len);
 }
 
 test "popup: opacity is clamped during CLI parsing" {
@@ -11609,4 +11557,43 @@ test "popup: opacity is clamped during CLI parsing" {
     if (high) |p| {
         try testing.expectEqual(@as(?f64, 1.0), p.opacity);
     }
+}
+
+test "popup: upsert rolls back on allocation failure" {
+    const testing = std.testing;
+    const profile = popupmod.PopupProfile{
+        .width = popupmod.Dimension.initPercent(80),
+        .height = popupmod.Dimension.initPercent(50),
+        .command = "echo hello",
+        .cwd = "~/tmp",
+        .keybind = "ctrl+grave_accent",
+    };
+
+    var fail_index: usize = 0;
+    var saw_success = false;
+    while (fail_index < 64) : (fail_index += 1) {
+        var fail_alloc_state = std.testing.FailingAllocator.init(testing.allocator, .{
+            .fail_index = fail_index,
+        });
+        const fail_alloc = fail_alloc_state.allocator();
+
+        var popups: RepeatablePopup = .{};
+        defer popups.deinit(fail_alloc);
+
+        const result = popups.upsert(fail_alloc, "demo", profile);
+
+        if (result) |_| {
+            saw_success = true;
+            break;
+        } else |err| switch (err) {
+            error.OutOfMemory => {
+                try testing.expectEqual(@as(usize, 0), popups.entries.items.len);
+                try testing.expectEqual(@as(usize, 0), popups.names_c.items.len);
+                try testing.expectEqual(@as(usize, 0), popups.profiles_c.items.len);
+            },
+            else => return err,
+        }
+    }
+
+    try testing.expect(saw_success);
 }
