@@ -138,7 +138,7 @@ class BrowserProxyRelay {
         let connectStart = Date()
         let remote: NWConnection
 
-        if let upstream = _upstreamProxy, let (proxyHost, proxyPort) = parseProxyURL(upstream) {
+        if let upstream = _upstreamProxy, let (proxyHost, proxyPort) = Self.parseProxyURL(upstream) {
             // Connect to upstream proxy and forward the CONNECT request
             remote = NWConnection(host: NWEndpoint.Host(proxyHost), port: NWEndpoint.Port(integerLiteral: proxyPort), using: .tcp)
         } else {
@@ -155,7 +155,7 @@ class BrowserProxyRelay {
             case .ready:
                 let connectDuration = Date().timeIntervalSince(connectStart)
 
-                if let upstream = self?._upstreamProxy, self?.parseProxyURL(upstream) != nil {
+                if let upstream = self?._upstreamProxy, Self.parseProxyURL(upstream) != nil {
                     // When going through upstream proxy, forward the CONNECT request
                     let connectRequest = "CONNECT \(target) HTTP/1.1\r\nHost: \(target)\r\n\r\n"
                     remote.send(content: connectRequest.data(using: .utf8), completion: .contentProcessed { [weak self] _ in
@@ -223,7 +223,7 @@ class BrowserProxyRelay {
         let sendStart = Date()
         let remote: NWConnection
 
-        if let upstream = _upstreamProxy, let (proxyHost, proxyPort) = parseProxyURL(upstream) {
+        if let upstream = _upstreamProxy, let (proxyHost, proxyPort) = Self.parseProxyURL(upstream) {
             // Forward entire request to upstream proxy as-is
             remote = NWConnection(host: NWEndpoint.Host(proxyHost), port: NWEndpoint.Port(integerLiteral: proxyPort), using: .tcp)
         } else {
@@ -316,8 +316,11 @@ class BrowserProxyRelay {
         return (target, defaultPort)
     }
 
-    private func parseProxyURL(_ urlString: String) -> (String, UInt16)? {
-        guard let url = URL(string: urlString), let host = url.host else { return nil }
+    static func parseProxyURL(_ urlString: String) -> (String, UInt16)? {
+        guard let url = URL(string: urlString),
+              let scheme = url.scheme,
+              !scheme.isEmpty,
+              let host = url.host else { return nil }
         let port = UInt16(url.port ?? 8080)
         return (host, port)
     }

@@ -60,7 +60,14 @@ extension Ghostty {
         }
 
         private func onToggleBrowser() {
-            // Ensure tab manager exists before showing, with config from ghostty
+            if surfaceView.browserVisible {
+                hideBrowser()
+            } else {
+                showBrowser()
+            }
+        }
+
+        private func showBrowser() {
             if surfaceView.browserTabManager == nil {
                 let manager = BrowserTabManager(
                     proxyURL: ghostty.config.browserProxy,
@@ -68,11 +75,22 @@ extension Ghostty {
                     tlsStrict: ghostty.config.browserTlsStrict
                 )
                 manager.onLastTabClosed = { [weak surfaceView] in
-                    surfaceView?.browserVisible = false
+                    guard let surfaceView else { return }
+                    let manager = surfaceView.browserTabManager
+                    surfaceView.browserVisible = false
+                    surfaceView.browserTabManager = nil
+                    manager?.invalidate()
                 }
                 surfaceView.browserTabManager = manager
             }
-            surfaceView.browserVisible.toggle()
+            surfaceView.browserVisible = true
+        }
+
+        private func hideBrowser() {
+            let manager = surfaceView.browserTabManager
+            surfaceView.browserVisible = false
+            surfaceView.browserTabManager = nil
+            manager?.invalidate()
         }
     }
 }

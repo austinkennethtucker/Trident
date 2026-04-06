@@ -70,8 +70,15 @@ class BrowserTabManager: ObservableObject {
     }
 
     deinit {
+        invalidate()
+    }
+
+    func invalidate() {
         socketServer?.stop()
+        socketServer = nil
         proxyRelay?.stop()
+        proxyRelay = nil
+        onLastTabClosed = nil
     }
 
     // MARK: - Tab Management
