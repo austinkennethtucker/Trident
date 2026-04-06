@@ -84,10 +84,11 @@ struct BrowserPaneView: View {
                     BrowserWebView(model: model, onBrowserFocused: onBrowserFocused)
                         .id(model.id)
 
-                    if let controller = model.autofillController {
+                    if let controller = model.autofillController,
+                       let store = tabManager.autofillStore {
                         AutofillOverlayView(
                             controller: controller,
-                            availableVaults: ["Personal"]
+                            store: store
                         )
                         .allowsHitTesting(
                             controller.showPrompt ||

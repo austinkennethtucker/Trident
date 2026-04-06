@@ -1,5 +1,11 @@
 import Foundation
 
+struct AutofillProcessResult {
+    let output: String
+    let stderr: String
+    let exitCode: Int32
+}
+
 // MARK: - PassCredentialMeta
 
 /// Metadata extracted from a single Proton Pass login item.
@@ -37,6 +43,7 @@ struct PassCredentialMeta: Identifiable {
 /// Never holds passwords or TOTP secrets.
 private struct VaultIndex {
     var items: [PassCredentialMeta] = []
+    var shareIdToVaultName: [String: String] = [:]
     var loadedAt: Date?
 
     var isStale: Bool {
@@ -55,32 +62,53 @@ private struct VaultIndex {
 /// index of what's in the vault and only reaches out to the real store
 /// when it needs to resolve a specific secret.
 final class AutofillStore: ObservableObject {
+    typealias ProcessRunner = (String, [String], String?) async -> AutofillProcessResult
 
     // MARK: - Published State
 
     /// True when pass-cli is not installed or session has expired.
-    @Published private(set) var isUnavailable: Bool = false
+    @MainActor @Published private(set) var isUnavailable: Bool = false
     /// Human-readable reason autofill is unavailable (for banner display).
-    @Published private(set) var unavailableReason: String = ""
+    @MainActor @Published private(set) var unavailableReason: String = ""
+    /// Vault names available for save operations.
+    @MainActor @Published private(set) var availableVaultNames: [String]
 
     // MARK: - Private State
 
-    private var index = VaultIndex()
-    private var passCLIPath: String?
+    @MainActor private var index = VaultIndex()
+    @MainActor private var passCLIPath: String?
     /// Optional vault name to restrict lookups. Nil = all vaults.
     private let vaultName: String?
+    private let processRunner: ProcessRunner
 
     // MARK: - Init
 
     /// Discover pass-cli and record the optional vault restriction.
     /// - Parameter vaultName: Vault to restrict to, or nil for all vaults.
-    init(vaultName: String?) {
+    init(
+        vaultName: String?,
+        passCLIPath: String? = nil,
+        autoDiscoverCLI: Bool = true,
+        processRunner: @escaping ProcessRunner = AutofillStore.defaultRunProcess
+    ) {
         self.vaultName = vaultName
-        Task { await discoverCLI() }
+        self.passCLIPath = passCLIPath
+        self.availableVaultNames = vaultName.map { [$0] } ?? []
+        self.processRunner = processRunner
+
+        if autoDiscoverCLI {
+            Task { @MainActor in
+                await discoverCLI()
+            }
+        } else if passCLIPath != nil {
+            isUnavailable = false
+            unavailableReason = ""
+        }
     }
 
     // MARK: - CLI Discovery
 
+    @MainActor
     private func discoverCLI() async {
         // Finder-launched apps get a minimal PATH that excludes ~/.local/bin,
         // /opt/homebrew/bin, etc. Check well-known locations directly instead
@@ -118,30 +146,25 @@ final class AutofillStore: ObservableObject {
         }
 
         print("[AutofillStore] pass-cli not found — autofill disabled")
-        await MainActor.run {
-            isUnavailable = true
-            unavailableReason = "pass-cli not found — install it or add it to PATH"
-        }
+        isUnavailable = true
+        unavailableReason = "pass-cli not found — install it or add it to PATH"
     }
 
     // MARK: - Session Check
 
     /// Runs `pass-cli test` to verify the session is active.
     /// Sets isUnavailable if the session is expired.
+    @MainActor
     func checkSession() async {
         guard let cli = passCLIPath else { return }
         let result = await runProcess(executable: cli, arguments: ["test"], input: nil)
         if result.exitCode != 0 {
             print("[AutofillStore] pass-cli session expired")
-            await MainActor.run {
-                isUnavailable = true
-                unavailableReason = "Proton Pass session expired — run `pass-cli login` in a terminal"
-            }
+            isUnavailable = true
+            unavailableReason = "Proton Pass session expired — run `pass-cli login` in a terminal"
         } else {
-            await MainActor.run {
-                isUnavailable = false
-                unavailableReason = ""
-            }
+            isUnavailable = false
+            unavailableReason = ""
         }
     }
 
@@ -150,6 +173,7 @@ final class AutofillStore: ObservableObject {
     /// Find all cached credentials that match the given URL.
     /// Performs exact-host matching with www-prefix stripping.
     /// Returns empty array if autofill is unavailable or URL is not HTTPS.
+    @MainActor
     func findMatches(for pageURL: URL) async -> [PassCredentialMeta] {
         guard !isUnavailable else { return [] }
 
@@ -164,19 +188,19 @@ final class AutofillStore: ObservableObject {
             await refreshIndex()
         }
 
-        guard let pageHost = normalizeHost(pageURL.host) else { return [] }
+        guard let pageHost = Self.normalizeHost(pageURL.host) else { return [] }
 
         return index.items.filter { item in
             item.urls.contains { urlStr in
                 // Try the URL as-is first
                 if let url = URL(string: urlStr),
-                   let itemHost = normalizeHost(url.host) {
+                   let itemHost = Self.normalizeHost(url.host) {
                     return itemHost == pageHost
                 }
                 // If host is nil and URL has no scheme, try prepending https://
                 if !urlStr.contains("://"),
                    let url = URL(string: "https://\(urlStr)"),
-                   let itemHost = normalizeHost(url.host) {
+                   let itemHost = Self.normalizeHost(url.host) {
                     return itemHost == pageHost
                 }
                 return false
@@ -187,6 +211,7 @@ final class AutofillStore: ObservableObject {
     // MARK: - Index Refresh
 
     /// Re-loads the vault index from pass-cli. Called when index is stale.
+    @MainActor
     private func refreshIndex() async {
         guard let cli = passCLIPath else { return }
 
@@ -216,9 +241,11 @@ final class AutofillStore: ObservableObject {
             }
             vaultNames = vaults.compactMap { $0["name"] as? String }
         }
+        availableVaultNames = vaultNames
 
         // Load items from each vault and merge
         var allItems: [PassCredentialMeta] = []
+        var shareIdToVaultName: [String: String] = [:]
         for name in vaultNames {
             let result = await runProcess(
                 executable: cli,
@@ -231,9 +258,13 @@ final class AutofillStore: ObservableObject {
             }
             let parsed = parseItemList(result.output)
             allItems.append(contentsOf: parsed)
+            for item in parsed {
+                shareIdToVaultName[item.shareId] = name
+            }
         }
 
         index.items = allItems
+        index.shareIdToVaultName = shareIdToVaultName
         index.loadedAt = Date()
         print("[AutofillStore] Index loaded: \(allItems.count) login item(s)")
     }
@@ -297,6 +328,7 @@ final class AutofillStore: ObservableObject {
     /// Fetch the full credential (username + password) for a given item.
     /// Secrets are fetched on demand and should be used immediately, not stored.
     /// Returns nil if the fetch fails.
+    @MainActor
     func fetchCredential(shareId: String, itemId: String) async -> (username: String, email: String, password: String)? {
         guard let cli = passCLIPath else { return nil }
 
@@ -329,6 +361,7 @@ final class AutofillStore: ObservableObject {
 
     /// Fetch a TOTP code for an item with hasTOTP = true.
     /// Returns nil if the item has no TOTP or the fetch fails.
+    @MainActor
     func fetchTOTP(shareId: String, itemId: String) async -> String? {
         guard let cli = passCLIPath else { return nil }
 
@@ -360,6 +393,7 @@ final class AutofillStore: ObservableObject {
 
     /// Save a new login item to the vault via `pass-cli item create login --from-template -`.
     /// The template JSON is piped via stdin — password never appears in argv.
+    @MainActor
     func saveCredential(
         title: String,
         username: String,
@@ -405,25 +439,36 @@ final class AutofillStore: ObservableObject {
 
     /// Returns the vault name for a given shareId by searching the index.
     /// Falls back to the configured vaultName, then nil.
+    @MainActor
     private func vaultNameForShareId(_ shareId: String) -> String? {
         if let name = vaultName { return name }
-        return nil
+        return index.shareIdToVaultName[shareId]
     }
 
     // MARK: - Subprocess Helper
-
-    private struct ProcessResult {
-        let output: String
-        let stderr: String
-        let exitCode: Int32
-    }
 
     /// Run an external process off the main thread, optionally piping `input` to stdin.
     private func runProcess(
         executable: String,
         arguments: [String],
         input: String?
-    ) async -> ProcessResult {
+    ) async -> AutofillProcessResult {
+        await processRunner(executable, arguments, input)
+    }
+
+    static func runProcessForTesting(
+        executable: String,
+        arguments: [String],
+        input: String?
+    ) async -> AutofillProcessResult {
+        await defaultRunProcess(executable, arguments, input)
+    }
+
+    private static func defaultRunProcess(
+        executable: String,
+        arguments: [String],
+        input: String?
+    ) async -> AutofillProcessResult {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
@@ -446,18 +491,34 @@ final class AutofillStore: ObservableObject {
 
                 do {
                     try process.run()
-                    process.waitUntilExit()
                 } catch {
-                    continuation.resume(returning: ProcessResult(output: "", stderr: error.localizedDescription, exitCode: -1))
+                    continuation.resume(returning: AutofillProcessResult(output: "", stderr: error.localizedDescription, exitCode: -1))
                     return
                 }
 
-                let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                let group = DispatchGroup()
+                var outData = Data()
+                var errData = Data()
+
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    group.leave()
+                }
+
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    group.leave()
+                }
+
+                process.waitUntilExit()
+                group.wait()
+
                 let output = String(data: outData, encoding: .utf8) ?? ""
                 let stderr = String(data: errData, encoding: .utf8) ?? ""
 
-                continuation.resume(returning: ProcessResult(
+                continuation.resume(returning: AutofillProcessResult(
                     output: output,
                     stderr: stderr,
                     exitCode: process.terminationStatus
@@ -469,7 +530,7 @@ final class AutofillStore: ObservableObject {
     // MARK: - Host Normalization
 
     /// Strip www. prefix and lowercase the host.
-    private func normalizeHost(_ host: String?) -> String? {
+    static func normalizeHost(_ host: String?) -> String? {
         guard var h = host, !h.isEmpty else { return nil }
         if h.lowercased().hasPrefix("www.") {
             h = String(h.dropFirst(4))

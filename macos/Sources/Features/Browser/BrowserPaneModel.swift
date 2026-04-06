@@ -326,6 +326,7 @@ class BrowserPaneModel: NSObject, ObservableObject {
 
         observations.append(webView.observe(\.url) { [weak self] wv, _ in
             DispatchQueue.main.async {
+                self?.autofillController?.handleNavigation(to: wv.url)
                 self?.currentURL = wv.url
                 if let url = wv.url?.absoluteString, self?.urlString != url {
                     self?.urlString = url

@@ -6,12 +6,16 @@ import SwiftUI
 /// Renders whichever autofill UI state is active for the current tab.
 struct AutofillOverlayView: View {
     @ObservedObject var controller: BrowserAutofillController
-    var availableVaults: [String]
+    @ObservedObject var store: AutofillStore
 
     var body: some View {
         VStack(spacing: 0) {
             if controller.sessionExpired {
                 SessionExpiredBanner(controller: controller)
+            }
+
+            if let message = controller.fillErrorMessage {
+                FillErrorBanner(message: message, controller: controller)
             }
 
             if controller.showPrompt, !controller.matchingCredentials.isEmpty {
@@ -25,12 +29,41 @@ struct AutofillOverlayView: View {
             if controller.showSave {
                 SavePromptView(
                     controller: controller,
-                    availableVaults: availableVaults
+                    availableVaults: store.availableVaultNames
                 )
             }
 
             Spacer()
         }
+    }
+}
+
+// MARK: - FillErrorBanner
+
+private struct FillErrorBanner: View {
+    let message: String
+    @ObservedObject var controller: BrowserAutofillController
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundColor(.primary)
+            Spacer()
+            Button(action: { controller.dismissFillError() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 0)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
     }
 }
 
@@ -225,6 +258,12 @@ private struct SavePromptView: View {
                     .labelsHidden()
                     .frame(maxWidth: 160)
                 }
+            }
+
+            if availableVaults.isEmpty {
+                Text("No Proton Pass vaults are available yet.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
             }
 
             HStack {

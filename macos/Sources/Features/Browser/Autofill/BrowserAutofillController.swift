@@ -25,6 +25,8 @@ final class BrowserAutofillController: ObservableObject {
     @Published var totpCode: String?
     /// True when AutofillStore reports session expired.
     @Published var sessionExpired: Bool = false
+    /// User-visible fill error shown in the overlay.
+    @Published var fillErrorMessage: String?
 
     // MARK: - Private State
 
@@ -51,6 +53,13 @@ final class BrowserAutofillController: ObservableObject {
     /// Called by BrowserPaneModel once the WKWebView is created.
     func attach(to webView: WKWebView) {
         self.webView = webView
+    }
+
+    func handleNavigation(to url: URL?) {
+        autofillDidFill = false
+        detectedUsernameSelector = nil
+        detectedPasswordSelector = nil
+        fillErrorMessage = nil
     }
 
     // MARK: - Message Dispatch
@@ -95,11 +104,11 @@ final class BrowserAutofillController: ObservableObject {
         guard let webView,
               let pageURL = webView.url else { return false }
 
-        let msgHost = message.frameInfo.securityOrigin.host
-        let pageHost = pageURL.host ?? ""
+        let msgHost = AutofillStore.normalizeHost(message.frameInfo.securityOrigin.host)
+        let pageHost = AutofillStore.normalizeHost(pageURL.host)
 
-        guard !msgHost.isEmpty, !pageHost.isEmpty else { return false }
-        return msgHost.lowercased() == pageHost.lowercased()
+        guard let msgHost, let pageHost else { return false }
+        return msgHost == pageHost
     }
 
     // MARK: - Form Detected Handler
@@ -120,9 +129,9 @@ final class BrowserAutofillController: ObservableObject {
 
         Task {
             // Re-check session if previously unavailable
-            if store.isUnavailable {
+            if await store.isUnavailable {
                 await store.checkSession()
-                let stillUnavailable = store.isUnavailable
+                let stillUnavailable = await store.isUnavailable
                 await MainActor.run {
                     sessionExpired = stillUnavailable
                 }
@@ -141,19 +150,24 @@ final class BrowserAutofillController: ObservableObject {
     // MARK: - Submit Detected Handler
 
     private func handleSubmitDetected(body: [String: Any]) {
+        let domain = webView?.url?.host ?? "Unknown site"
+        consumeSubmitDetected(
+            isNewPassword: body["isNewPassword"] as? Bool ?? false,
+            username: body["username"] as? String ?? "",
+            password: body["password"] as? String ?? "",
+            domain: domain
+        )
+    }
+
+    func consumeSubmitDetected(isNewPassword: Bool, username: String, password: String, domain: String) {
         // If we just filled this form ourselves, suppress the save prompt
         guard !autofillDidFill else {
             autofillDidFill = false
             return
         }
 
-        guard let isNewPassword = body["isNewPassword"] as? Bool, isNewPassword else { return }
-
-        let username = body["username"] as? String ?? ""
-        let password = body["password"] as? String ?? ""
+        guard isNewPassword else { return }
         guard !password.isEmpty else { return }
-
-        let domain = webView?.url?.host ?? "Unknown site"
 
         pendingSaveUsername = username
         pendingSavePassword = password
@@ -173,44 +187,74 @@ final class BrowserAutofillController: ObservableObject {
                 shareId: credential.shareId,
                 itemId: credential.itemId
             ) else {
+                await MainActor.run {
+                    fillErrorMessage = "Could not load this Proton Pass login. Check your session and try again."
+                }
                 print("[AutofillController] fetchCredential returned nil")
                 return
             }
 
             let usernameValue = secret.email.isEmpty ? secret.username : secret.email
 
-            // Fill username via callAsyncJavaScript with arguments (no string interpolation)
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                DispatchQueue.main.async {
-                    webView.callAsyncJavaScript(
-                        "return window.__tridentAutofillHelper.fill(selector, value)",
-                        arguments: [
-                            "selector": self.detectedUsernameSelector ?? "input[autocomplete=\"username\"], input[type=\"email\"], input[type=\"text\"]",
-                            "value": usernameValue
-                        ],
-                        in: nil,
-                        in: .defaultClient
-                    ) { _ in }
+            async let usernameFill = fillField(
+                in: webView,
+                selector: detectedUsernameSelector ?? "input[autocomplete=\"username\"], input[type=\"email\"], input[type=\"text\"]",
+                value: usernameValue
+            )
+            async let passwordFill = fillField(
+                in: webView,
+                selector: detectedPasswordSelector ?? "input[type=\"password\"]",
+                value: secret.password
+            )
 
-                    webView.callAsyncJavaScript(
-                        "return window.__tridentAutofillHelper.fill(selector, value)",
-                        arguments: [
-                            "selector": self.detectedPasswordSelector ?? "input[type=\"password\"]",
-                            "value": secret.password
-                        ],
-                        in: nil,
-                        in: .defaultClient
-                    ) { _ in
-                        continuation.resume()
-                    }
-                }
+            let usernameFilled = await usernameFill
+            let passwordFilled = await passwordFill
+
+            await MainActor.run {
+                autofillDidFill = usernameFilled || passwordFilled
+                fillErrorMessage = fillErrorMessageFor(usernameFilled: usernameFilled, passwordFilled: passwordFilled)
             }
-
-            await MainActor.run { autofillDidFill = true }
 
             if credential.hasTOTP {
                 await handleTOTP(shareId: credential.shareId, itemId: credential.itemId)
             }
+        }
+    }
+
+    private func fillField(in webView: WKWebView, selector: String, value: String) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.main.async {
+                webView.callAsyncJavaScript(
+                    "return window.__tridentAutofillHelper.fill(selector, value)",
+                    arguments: [
+                        "selector": selector,
+                        "value": value
+                    ],
+                    in: nil,
+                    in: .defaultClient
+                ) { result in
+                    switch result {
+                    case .success(let value):
+                        continuation.resume(returning: value as? Bool ?? false)
+                    case .failure(let error):
+                        print("[AutofillController] JS fill failed for selector '\(selector)': \(error)")
+                        continuation.resume(returning: false)
+                    }
+                }
+            }
+        }
+    }
+
+    private func fillErrorMessageFor(usernameFilled: Bool, passwordFilled: Bool) -> String? {
+        switch (usernameFilled, passwordFilled) {
+        case (true, true):
+            return nil
+        case (false, false):
+            return "Could not find the login fields on this page."
+        case (false, true):
+            return "Filled the password, but the username field could not be found."
+        case (true, false):
+            return "Filled the username, but the password field could not be found."
         }
     }
 
@@ -226,13 +270,23 @@ final class BrowserAutofillController: ObservableObject {
             totpCode = code
             totpClearTimer?.cancel()
 
+            let expectedCode = code
             let item = DispatchWorkItem { [weak self] in
-                NSPasteboard.general.clearContents()
+                if Self.shouldClearTOTPPasteboard(
+                    currentString: NSPasteboard.general.string(forType: .string),
+                    expectedTOTP: expectedCode
+                ) {
+                    NSPasteboard.general.clearContents()
+                }
                 self?.totpCode = nil
             }
             totpClearTimer = item
             DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: item)
         }
+    }
+
+    static func shouldClearTOTPPasteboard(currentString: String?, expectedTOTP: String) -> Bool {
+        currentString == expectedTOTP
     }
 
     // MARK: - Save Credential
@@ -266,5 +320,9 @@ final class BrowserAutofillController: ObservableObject {
 
     func dismissSave() {
         showSave = false
+    }
+
+    func dismissFillError() {
+        fillErrorMessage = nil
     }
 }
