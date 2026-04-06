@@ -149,6 +149,9 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Xcode Select
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
+
       - name: Xcode Version
         run: xcodebuild -version
 
@@ -363,6 +366,8 @@ jobs:
     env:
       GHOSTTY_VERSION: ${{ needs.setup.outputs.version }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - name: Download macOS Artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -415,3 +420,57 @@ jobs:
           r2-bucket: ghostty-release
           source-dir: blob
           destination-dir: ./
+
+      - name: Verify Homebrew tap token
+        env:
+          SUBDEPTH_RELEASE_TOKEN: ${{ secrets.SUBDEPTH_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$SUBDEPTH_RELEASE_TOKEN" ]; then
+            echo "::error::SUBDEPTH_RELEASE_TOKEN is required to update subdepthtech/homebrew-trident."
+            exit 1
+          fi
+
+      - name: Resolve Homebrew cask metadata
+        id: homebrew
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${GHOSTTY_VERSION}" --jq '.assets[] | select(.name=="Trident.dmg") | .id')
+          sha256=$(shasum -a 256 Trident.dmg | awk '{print $1}')
+          test -n "$asset_id"
+          test -n "$sha256"
+          echo "asset_id=$asset_id" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: subdepthtech/homebrew-trident
+          ref: main
+          path: homebrew-trident
+          token: ${{ secrets.SUBDEPTH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Update stable Homebrew cask
+        run: |
+          python3 .github/scripts/update_homebrew_cask.py \
+            --cask-file homebrew-trident/Casks/trident.rb \
+            --version "v${GHOSTTY_VERSION}" \
+            --asset-id "${{ steps.homebrew.outputs.asset_id }}" \
+            --sha256 "${{ steps.homebrew.outputs.sha256 }}"
+
+      - name: Commit and push stable Homebrew cask
+        env:
+          SUBDEPTH_RELEASE_TOKEN: ${{ secrets.SUBDEPTH_RELEASE_TOKEN }}
+        run: |
+          cd homebrew-trident
+          if git diff --quiet --exit-code -- Casks/trident.rb; then
+            echo "Stable cask already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/trident.rb
+          git commit -m "Update trident cask to v${GHOSTTY_VERSION}"
+          git push "https://x-access-token:${SUBDEPTH_RELEASE_TOKEN}@github.com/subdepthtech/homebrew-trident.git" HEAD:main
