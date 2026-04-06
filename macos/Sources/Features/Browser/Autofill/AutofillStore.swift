@@ -132,6 +132,7 @@ final class AutofillStore: ObservableObject {
             passCLIPath = whichPath
             print("[AutofillStore] pass-cli discovered via login shell at: \(whichPath)")
             await checkSession()
+            await loadVaultNamesAfterDiscoveryIfNeeded()
             return
         }
 
@@ -141,6 +142,7 @@ final class AutofillStore: ObservableObject {
                 passCLIPath = path
                 print("[AutofillStore] pass-cli discovered at: \(path)")
                 await checkSession()
+                await loadVaultNamesAfterDiscoveryIfNeeded()
                 return
             }
         }
@@ -464,6 +466,18 @@ final class AutofillStore: ObservableObject {
         }
 
         return vaults.compactMap { $0["name"] as? String }
+    }
+
+    @MainActor
+    private func loadVaultNamesAfterDiscoveryIfNeeded() async {
+        guard vaultName == nil else { return }
+        guard availableVaultNames.isEmpty else { return }
+        guard !isUnavailable else { return }
+
+        let vaultNames = await loadVaultNames()
+        if !vaultNames.isEmpty {
+            availableVaultNames = vaultNames
+        }
     }
 
     // MARK: - Subprocess Helper

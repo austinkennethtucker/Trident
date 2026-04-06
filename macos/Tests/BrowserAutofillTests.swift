@@ -159,6 +159,48 @@ struct BrowserAutofillTests {
         #expect(invocations == [["vault", "list", "--output", "json"]])
     }
 
+    @MainActor
+    @Test("CLI discovery populates vault names for save-first flows")
+    func cliDiscoveryBackfillsVaultNamesForSaveFirstFlows() async throws {
+        let store = AutofillStore(
+            vaultName: nil,
+            passCLIPath: nil,
+            autoDiscoverCLI: true,
+            processRunner: { _, arguments, _ in
+                switch arguments {
+                case ["-l", "-c", "which pass-cli"]:
+                    return AutofillProcessResult(
+                        output: "/usr/bin/pass-cli\n",
+                        stderr: "",
+                        exitCode: 0
+                    )
+                case ["test"]:
+                    return AutofillProcessResult(
+                        output: "",
+                        stderr: "",
+                        exitCode: 0
+                    )
+                case ["vault", "list", "--output", "json"]:
+                    return AutofillProcessResult(
+                        output: #"{"vaults":[{"name":"Personal"},{"name":"Work"}]}"#,
+                        stderr: "",
+                        exitCode: 0
+                    )
+                default:
+                    Issue.record("Unexpected process invocation: \(arguments)")
+                    return AutofillProcessResult(output: "", stderr: "unexpected", exitCode: 1)
+                }
+            }
+        )
+
+        for _ in 0..<20 {
+            if !store.availableVaultNames.isEmpty { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        #expect(store.availableVaultNames == ["Personal", "Work"])
+    }
+
     @Test("TOTP cleanup only clears clipboard when the same code is still present")
     func totpCleanupChecksClipboardContents() async throws {
         #expect(BrowserAutofillController.shouldClearTOTPPasteboard(
