@@ -49,7 +49,12 @@ struct BrowserSocketServerTests {
 
     @Test func startRemovesDeadBrowserSocketFiles() throws {
         let stalePath = "/tmp/trident/b-deadbeef.sock"
-        _ = FileManager.default.createFile(atPath: stalePath, contents: Data())
+        try FileManager.default.createDirectory(
+            atPath: "/tmp/trident",
+            withIntermediateDirectories: true
+        )
+        try BrowserSocketFixture.createDeadSocket(at: stalePath)
+        #expect(FileManager.default.fileExists(atPath: stalePath))
         defer { unlink(stalePath) }
 
         let server = BrowserSocketServer(paneId: UUID())
@@ -121,5 +126,34 @@ private enum BrowserSocketTestClient {
         let responseData = Data(prefix[0..<newlineIndex])
         let object = try JSONSerialization.jsonObject(with: responseData)
         return object as? [String: Any] ?? [:]
+    }
+}
+
+private enum BrowserSocketFixture {
+    static func createDeadSocket(at path: String) throws {
+        unlink(path)
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw POSIXError(.EIO)
+        }
+        defer { Darwin.close(fd) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = path.utf8CString.map(UInt8.init(bitPattern:))
+        withUnsafeMutableBytes(of: &addr.sun_path) { bytes in
+            bytes.copyBytes(from: pathBytes)
+        }
+        addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+
+        let bindResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                bind(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
     }
 }

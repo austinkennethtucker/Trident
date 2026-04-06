@@ -599,7 +599,7 @@ private extension BrowserSocketServer {
         }
 
         if (statInfo.st_mode & S_IFMT) != S_IFSOCK {
-            return true
+            return false
         }
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
