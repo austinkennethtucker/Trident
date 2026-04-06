@@ -9365,6 +9365,7 @@ pub const RepeatablePopup = struct {
             remainder,
             null,
         );
+        defer popupmod.freeProfileStrings(profile, alloc);
         if (profile.opacity) |o| {
             profile.opacity = std.math.clamp(o, 0.0, 1.0);
         }
@@ -11557,6 +11558,25 @@ test "popup: opacity is clamped during CLI parsing" {
     if (high) |p| {
         try testing.expectEqual(@as(?f64, 1.0), p.opacity);
     }
+}
+
+test "popup: parseCLI transfers parsed string ownership without leaks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var popups: RepeatablePopup = .{};
+    defer popups.deinit(alloc);
+
+    try popups.parseCLI(
+        alloc,
+        "demo:width:80%,height:50%,command:echo hello,cwd:~/tmp,keybind:ctrl+grave_accent",
+    );
+
+    try testing.expectEqual(@as(usize, 1), popups.entries.items.len);
+    const profile = popups.get("demo").?;
+    try testing.expectEqualStrings("echo hello", profile.command.?);
+    try testing.expectEqualStrings("~/tmp", profile.cwd.?);
+    try testing.expectEqualStrings("ctrl+grave_accent", profile.keybind.?);
 }
 
 test "popup: upsert rolls back on allocation failure" {

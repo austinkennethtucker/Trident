@@ -2740,9 +2740,23 @@ const Action = struct {
 
     fn targetWorkingDirectory(target: apprt.Target) ?[:0]const u8 {
         return switch (target) {
-            .app => null,
+            .app => activeSurfaceWorkingDirectory(),
             .surface => |v| v.rt_surface.surface.getPwd(),
         };
+    }
+
+    fn activeSurfaceWorkingDirectory() ?[:0]const u8 {
+        const glist = gtk.Window.listToplevels();
+        defer glist.free();
+
+        const focused = @as(?*glib.List, glist.findCustom(
+            null,
+            findActiveWindow,
+        )) orelse return null;
+        const gtk_window: *gtk.Window = @ptrCast(@alignCast(focused.f_data orelse return null));
+        const window = gobject.ext.cast(Window, gtk_window) orelse return null;
+        const surface = window.getActiveSurface() orelse return null;
+        return surface.getPwd();
     }
 
     pub fn toggleQuickTerminal(self: *Application, target: apprt.Target) bool {
