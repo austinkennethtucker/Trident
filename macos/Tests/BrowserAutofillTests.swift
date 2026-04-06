@@ -107,6 +107,58 @@ struct BrowserAutofillTests {
         #expect(controller.pendingSavePassword == "secret")
     }
 
+    @MainActor
+    @Test("fill error alone still counts as interactive overlay content")
+    func fillErrorMakesOverlayInteractive() async throws {
+        let controller = BrowserAutofillController(store: AutofillStore(
+            vaultName: "Personal",
+            passCLIPath: "/usr/bin/pass-cli",
+            autoDiscoverCLI: false,
+            processRunner: { _, _, _ in
+                AutofillProcessResult(output: "", stderr: "", exitCode: 0)
+            }
+        ))
+
+        #expect(controller.hasInteractiveOverlayContent == false)
+        controller.fillErrorMessage = "Could not fill"
+        #expect(controller.hasInteractiveOverlayContent == true)
+        controller.dismissFillError()
+        #expect(controller.hasInteractiveOverlayContent == false)
+    }
+
+    @MainActor
+    @Test("save-first flows can load vault names before any match refresh")
+    func ensureVaultNamesLoadedSupportsSaveFirstFlows() async throws {
+        var invocations: [[String]] = []
+        let store = AutofillStore(
+            vaultName: nil,
+            passCLIPath: "/usr/bin/pass-cli",
+            autoDiscoverCLI: false,
+            processRunner: { _, arguments, _ in
+                invocations.append(arguments)
+
+                switch arguments {
+                case ["vault", "list", "--output", "json"]:
+                    return AutofillProcessResult(
+                        output: #"{"vaults":[{"name":"Personal"},{"name":"Work"}]}"#,
+                        stderr: "",
+                        exitCode: 0
+                    )
+                default:
+                    Issue.record("Unexpected process invocation: \(arguments)")
+                    return AutofillProcessResult(output: "", stderr: "unexpected", exitCode: 1)
+                }
+            }
+        )
+
+        #expect(store.availableVaultNames.isEmpty)
+
+        await store.ensureVaultNamesLoaded()
+
+        #expect(store.availableVaultNames == ["Personal", "Work"])
+        #expect(invocations == [["vault", "list", "--output", "json"]])
+    }
+
     @Test("TOTP cleanup only clears clipboard when the same code is still present")
     func totpCleanupChecksClipboardContents() async throws {
         #expect(BrowserAutofillController.shouldClearTOTPPasteboard(

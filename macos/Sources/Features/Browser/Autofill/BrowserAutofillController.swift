@@ -44,6 +44,10 @@ final class BrowserAutofillController: ObservableObject {
     /// Active TOTP clear timer.
     private var totpClearTimer: DispatchWorkItem?
 
+    var hasInteractiveOverlayContent: Bool {
+        showPrompt || showSave || sessionExpired || fillErrorMessage != nil
+    }
+
     // MARK: - Init
 
     init(store: AutofillStore) {

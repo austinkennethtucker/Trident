@@ -35,6 +35,10 @@ struct AutofillOverlayView: View {
 
             Spacer()
         }
+        .task(id: controller.showSave) {
+            guard controller.showSave else { return }
+            await store.ensureVaultNamesLoaded()
+        }
     }
 }
 
@@ -297,6 +301,11 @@ private struct SavePromptView: View {
             editableTitle = controller.pendingSaveTitle
             editableUsername = controller.pendingSaveUsername
             selectedVault = availableVaults.first ?? ""
+        }
+        .onChange(of: availableVaults) { newVaults in
+            if selectedVault.isEmpty {
+                selectedVault = newVaults.first ?? ""
+            }
         }
     }
 }

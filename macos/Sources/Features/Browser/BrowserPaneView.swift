@@ -90,11 +90,7 @@ struct BrowserPaneView: View {
                             controller: controller,
                             store: store
                         )
-                        .allowsHitTesting(
-                            controller.showPrompt ||
-                            controller.showSave ||
-                            controller.sessionExpired
-                        )
+                        .allowsHitTesting(controller.hasInteractiveOverlayContent)
                     }
                 }
 

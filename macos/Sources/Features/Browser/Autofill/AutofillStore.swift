@@ -208,6 +208,19 @@ final class AutofillStore: ObservableObject {
         }
     }
 
+    /// Load vault names for save flows that may happen before any match refresh.
+    @MainActor
+    func ensureVaultNamesLoaded() async {
+        guard availableVaultNames.isEmpty else { return }
+        guard vaultName == nil else { return }
+        guard let _ = passCLIPath else { return }
+
+        let vaultNames = await loadVaultNames()
+        if !vaultNames.isEmpty {
+            availableVaultNames = vaultNames
+        }
+    }
+
     // MARK: - Index Refresh
 
     /// Re-loads the vault index from pass-cli. Called when index is stale.
@@ -218,28 +231,12 @@ final class AutofillStore: ObservableObject {
         print("[AutofillStore] Refreshing vault index...")
 
         // Determine which vault(s) to load
-        var vaultNames: [String] = []
+        let vaultNames: [String]
         if let name = vaultName {
             vaultNames = [name]
         } else {
-            // Enumerate all vaults
-            let result = await runProcess(
-                executable: cli,
-                arguments: ["vault", "list", "--output", "json"],
-                input: nil
-            )
-            if result.exitCode != 0 {
-                print("[AutofillStore] vault list failed: \(result.stderr)")
-                await checkSession()
-                return
-            }
-            guard let data = result.output.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let vaults = json["vaults"] as? [[String: Any]] else {
-                print("[AutofillStore] Failed to parse vault list JSON")
-                return
-            }
-            vaultNames = vaults.compactMap { $0["name"] as? String }
+            vaultNames = await loadVaultNames()
+            if vaultNames.isEmpty { return }
         }
         availableVaultNames = vaultNames
 
@@ -443,6 +440,30 @@ final class AutofillStore: ObservableObject {
     private func vaultNameForShareId(_ shareId: String) -> String? {
         if let name = vaultName { return name }
         return index.shareIdToVaultName[shareId]
+    }
+
+    @MainActor
+    private func loadVaultNames() async -> [String] {
+        guard let cli = passCLIPath else { return [] }
+
+        let result = await runProcess(
+            executable: cli,
+            arguments: ["vault", "list", "--output", "json"],
+            input: nil
+        )
+        if result.exitCode != 0 {
+            print("[AutofillStore] vault list failed: \(result.stderr)")
+            await checkSession()
+            return []
+        }
+        guard let data = result.output.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let vaults = json["vaults"] as? [[String: Any]] else {
+            print("[AutofillStore] Failed to parse vault list JSON")
+            return []
+        }
+
+        return vaults.compactMap { $0["name"] as? String }
     }
 
     // MARK: - Subprocess Helper
