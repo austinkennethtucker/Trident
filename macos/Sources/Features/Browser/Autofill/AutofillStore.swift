@@ -93,16 +93,13 @@ final class AutofillStore: ObservableObject {
     ) {
         self.vaultName = vaultName
         self.passCLIPath = passCLIPath
-        self.availableVaultNames = vaultName.map { [$0] } ?? []
+        self._availableVaultNames = Published(initialValue: vaultName.map { [$0] } ?? [])
         self.processRunner = processRunner
 
         if autoDiscoverCLI {
             Task { @MainActor in
                 await discoverCLI()
             }
-        } else if passCLIPath != nil {
-            isUnavailable = false
-            unavailableReason = ""
         }
     }
 
@@ -496,7 +493,7 @@ final class AutofillStore: ObservableObject {
         arguments: [String],
         input: String?
     ) async -> AutofillProcessResult {
-        await defaultRunProcess(executable, arguments, input)
+        await defaultRunProcess(executable: executable, arguments: arguments, input: input)
     }
 
     private static func defaultRunProcess(
