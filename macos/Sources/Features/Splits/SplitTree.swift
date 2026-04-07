@@ -460,6 +460,12 @@ extension SplitTree.Node {
     typealias SplitError = SplitTree.SplitError
     typealias Path = SplitTree.Path
 
+    /// Backwards-compatible convenience for call sites that still identify
+    /// single-view leaves directly from the wrapped view instance.
+    static func leaf(view: ViewType) -> Self {
+        .leaf(.init(view: view))
+    }
+
     /// Find a node containing a view with the specified ID.
     /// - Parameter id: The ID of the view to find
     /// - Returns: The node containing the view if found, nil otherwise
@@ -1168,7 +1174,12 @@ extension SplitTree.Node: Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
         case let (.leaf(leftGroup), .leaf(rightGroup)):
-            return leftGroup.id == rightGroup.id
+            return leftGroup.id == rightGroup.id ||
+                   (
+                       leftGroup.tabs.count == 1 &&
+                       rightGroup.tabs.count == 1 &&
+                       leftGroup.activeView === rightGroup.activeView
+                   )
 
         case let (.split(split1), .split(split2)):
             return split1 == split2
