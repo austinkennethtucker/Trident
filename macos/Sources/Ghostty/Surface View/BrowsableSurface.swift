@@ -72,7 +72,9 @@ extension Ghostty {
                 let manager = BrowserTabManager(
                     proxyURL: ghostty.config.browserProxy,
                     proxyCertPath: ghostty.config.browserProxyCert,
-                    tlsStrict: ghostty.config.browserTlsStrict
+                    tlsStrict: ghostty.config.browserTlsStrict,
+                    autofillEnabled: ghostty.config.browserAutofill,
+                    autofillVault: ghostty.config.browserAutofillVault
                 )
                 manager.onLastTabClosed = { [weak surfaceView] in
                     guard let surfaceView else { return }

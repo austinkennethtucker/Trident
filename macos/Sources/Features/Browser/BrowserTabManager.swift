@@ -20,11 +20,15 @@ class BrowserTabManager: ObservableObject {
     let harRecorder: BrowserHARRecorder
     private(set) var proxyRelay: BrowserProxyRelay?
     private(set) var socketServer: BrowserSocketServer?
+    /// Shared autofill vault index and pass-cli interface, nil when disabled.
+    private(set) var autofillStore: AutofillStore?
 
     /// Config values forwarded to new tab models.
     private let proxyURL: String?
     private let proxyCertPath: String?
     private let tlsStrict: Bool
+    private let autofillEnabled: Bool
+    private let autofillVault: String?
 
     /// Combine subscriptions for forwarding child objectWillChange.
     private var childCancellables: [UUID: AnyCancellable] = [:]
@@ -35,11 +39,22 @@ class BrowserTabManager: ObservableObject {
         return tabs[activeTabIndex].model
     }
 
-    init(proxyURL: String? = nil, proxyCertPath: String? = nil, tlsStrict: Bool = true) {
+    init(
+        proxyURL: String? = nil,
+        proxyCertPath: String? = nil,
+        tlsStrict: Bool = true,
+        autofillEnabled: Bool = false,
+        autofillVault: String? = nil
+    ) {
         self.proxyURL = proxyURL
         self.proxyCertPath = proxyCertPath
         self.tlsStrict = tlsStrict
+        self.autofillEnabled = autofillEnabled
+        self.autofillVault = autofillVault
         self.harRecorder = BrowserHARRecorder()
+        if autofillEnabled {
+            self.autofillStore = AutofillStore(vaultName: autofillVault)
+        }
 
         // Start shared proxy relay
         let relay = BrowserProxyRelay()
@@ -66,7 +81,7 @@ class BrowserTabManager: ObservableObject {
         }
 
         // Create the first tab
-        let _ = addTab()
+        _ = addTab()
     }
 
     deinit {
@@ -92,7 +107,9 @@ class BrowserTabManager: ObservableObject {
             tlsStrict: tlsStrict,
             sharedRelay: proxyRelay,
             ownsRelay: false,
-            harRecorder: harRecorder
+            harRecorder: harRecorder,
+            autofillStore: autofillStore,
+            autofillEnabled: autofillEnabled
         )
         if let url = url {
             model.navigate(to: url)
