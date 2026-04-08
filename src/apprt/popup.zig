@@ -110,6 +110,107 @@ pub const PopupProfile = struct {
     }
 };
 
+/// An owned popup profile paired with its name.
+pub const NamedProfile = struct {
+    name: [:0]const u8,
+    profile: PopupProfile,
+
+    pub fn init(alloc: std.mem.Allocator, name: []const u8, profile: PopupProfile) !NamedProfile {
+        const owned_name = try alloc.dupeZ(u8, name);
+        errdefer alloc.free(owned_name);
+        return .{
+            .name = owned_name,
+            .profile = try cloneProfile(profile, alloc),
+        };
+    }
+
+    pub fn clone(self: NamedProfile, alloc: std.mem.Allocator) !NamedProfile {
+        return .{
+            .name = try alloc.dupeZ(u8, self.name),
+            .profile = try cloneProfile(self.profile, alloc),
+        };
+    }
+
+    pub fn deinit(self: *const NamedProfile, alloc: std.mem.Allocator) void {
+        alloc.free(self.name);
+        freeProfileStrings(self.profile, alloc);
+    }
+};
+
+pub const ResolvedWorkingDirectory = struct {
+    path: ?[:0]const u8 = null,
+    owned: bool = false,
+
+    pub fn deinit(self: ResolvedWorkingDirectory, alloc: std.mem.Allocator) void {
+        if (!self.owned) return;
+        if (self.path) |path| alloc.free(path);
+    }
+};
+
+pub fn resolveWorkingDirectory(
+    alloc: std.mem.Allocator,
+    explicit_cwd: ?[]const u8,
+    inherited_cwd: ?[:0]const u8,
+    home: ?[]const u8,
+) !ResolvedWorkingDirectory {
+    const cwd = explicit_cwd orelse return .{ .path = inherited_cwd };
+    if ((cwd.len == 1 and cwd[0] == '~') or
+        (cwd.len > 1 and cwd[0] == '~' and cwd[1] == '/'))
+    {
+        if (home) |home_dir| {
+            return .{
+                .path = try std.fmt.allocPrintSentinel(
+                    alloc,
+                    "{s}{s}",
+                    .{ home_dir, cwd[1..] },
+                    0,
+                ),
+                .owned = true,
+            };
+        }
+    }
+
+    return .{
+        .path = try alloc.dupeZ(u8, cwd),
+        .owned = true,
+    };
+}
+
+pub fn profileChanged(old: PopupProfile, new: PopupProfile) bool {
+    return old.position != new.position or
+        old.anchor != new.anchor or
+        !optionalDimensionEqual(old.x, new.x) or
+        !optionalDimensionEqual(old.y, new.y) or
+        old.width.value != new.width.value or
+        old.width.unit != new.width.unit or
+        old.height.value != new.height.value or
+        old.height.unit != new.height.unit or
+        old.autohide != new.autohide or
+        old.persist != new.persist or
+        !optionalF64Equal(old.opacity, new.opacity) or
+        !optionalSliceEqual(old.command, new.command) or
+        !optionalSliceEqual(old.cwd, new.cwd) or
+        !optionalSliceEqual(old.keybind, new.keybind);
+}
+
+pub fn cloneProfile(profile: PopupProfile, alloc: std.mem.Allocator) !PopupProfile {
+    var cloned = profile;
+    if (profile.keybind) |keybind| cloned.keybind = try alloc.dupe(u8, keybind);
+    errdefer if (cloned.keybind) |keybind| alloc.free(keybind);
+
+    if (profile.command) |command| cloned.command = try alloc.dupe(u8, command);
+    errdefer if (cloned.command) |command| alloc.free(command);
+
+    if (profile.cwd) |cwd| cloned.cwd = try alloc.dupe(u8, cwd);
+    return cloned;
+}
+
+pub fn freeProfileStrings(profile: PopupProfile, alloc: std.mem.Allocator) void {
+    if (profile.keybind) |keybind| alloc.free(keybind);
+    if (profile.command) |command| alloc.free(command);
+    if (profile.cwd) |cwd| alloc.free(cwd);
+}
+
 /// Validate a popup profile name.
 /// Allowed characters: [a-zA-Z0-9_-], must be non-empty.
 pub fn isValidName(name: []const u8) bool {
@@ -181,4 +282,83 @@ test "PopupProfile.C: opacity passes through" {
     const p = PopupProfile{ .opacity = 0.8 };
     const c = p.cval(null, null);
     try std.testing.expectEqual(@as(f64, 0.8), c.opacity);
+}
+
+test "resolveWorkingDirectory prefers explicit cwd over inherited cwd" {
+    const testing = std.testing;
+    const resolved = try resolveWorkingDirectory(
+        testing.allocator,
+        "~/projects/trident",
+        "/tmp/inherited",
+        "/Users/tester",
+    );
+    defer resolved.deinit(testing.allocator);
+
+    try testing.expect(resolved.owned);
+    try testing.expectEqualStrings("/Users/tester/projects/trident", resolved.path.?);
+}
+
+test "resolveWorkingDirectory falls back to inherited cwd" {
+    const testing = std.testing;
+    const inherited: [:0]const u8 = "/tmp/inherited";
+    const resolved = try resolveWorkingDirectory(testing.allocator, null, inherited, null);
+
+    try testing.expect(!resolved.owned);
+    try testing.expectEqualStrings(inherited, resolved.path.?);
+}
+
+test "resolveWorkingDirectory keeps literal tilde when home is unavailable" {
+    const testing = std.testing;
+    const resolved = try resolveWorkingDirectory(testing.allocator, "~/projects/trident", null, null);
+    defer resolved.deinit(testing.allocator);
+
+    try testing.expect(resolved.owned);
+    try testing.expectEqualStrings("~/projects/trident", resolved.path.?);
+}
+
+test "profileChanged detects hot reload relevant field changes" {
+    const base = PopupProfile{
+        .width = Dimension.initPercent(80),
+        .height = Dimension.initPercent(40),
+        .command = "echo hello",
+        .cwd = "/tmp",
+        .keybind = "ctrl+grave_accent",
+        .opacity = 0.5,
+    };
+
+    try std.testing.expect(!profileChanged(base, base));
+    try std.testing.expect(profileChanged(base, .{
+        .width = Dimension.initPercent(90),
+        .height = base.height,
+        .command = base.command,
+        .cwd = base.cwd,
+        .keybind = base.keybind,
+        .opacity = base.opacity,
+    }));
+    try std.testing.expect(profileChanged(base, .{
+        .width = base.width,
+        .height = base.height,
+        .command = "echo updated",
+        .cwd = base.cwd,
+        .keybind = base.keybind,
+        .opacity = base.opacity,
+    }));
+}
+
+fn optionalDimensionEqual(a: ?Dimension, b: ?Dimension) bool {
+    if (a == null and b == null) return true;
+    if (a == null or b == null) return false;
+    return a.?.value == b.?.value and a.?.unit == b.?.unit;
+}
+
+fn optionalSliceEqual(a: ?[]const u8, b: ?[]const u8) bool {
+    if (a == null and b == null) return true;
+    if (a == null or b == null) return false;
+    return std.mem.eql(u8, a.?, b.?);
+}
+
+fn optionalF64Equal(a: ?f64, b: ?f64) bool {
+    if (a == null and b == null) return true;
+    if (a == null or b == null) return false;
+    return a.? == b.?;
 }

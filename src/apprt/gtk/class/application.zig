@@ -771,17 +771,21 @@ pub const Application = extern struct {
 
             .toggle_maximize => Action.toggleMaximize(target),
             .toggle_fullscreen => Action.toggleFullscreen(target),
-            .toggle_quick_terminal => return Action.toggleQuickTerminal(self),
+            .toggle_quick_terminal => return Action.toggleQuickTerminal(self, target),
             .toggle_popup => {
                 const priv = self.private();
                 if (!priv.winproto.supportsPopup()) return false;
-                if (priv.popup_manager) |*pm| return pm.toggle(value.name);
+                if (priv.popup_manager) |*pm| {
+                    return pm.toggle(value.name, Action.targetWorkingDirectory(target));
+                }
                 return false;
             },
             .show_popup => {
                 const priv = self.private();
                 if (!priv.winproto.supportsPopup()) return false;
-                if (priv.popup_manager) |*pm| return pm.show(value.name);
+                if (priv.popup_manager) |*pm| {
+                    return pm.show(value.name, Action.targetWorkingDirectory(target));
+                }
                 return false;
             },
             .hide_popup => {
@@ -2734,12 +2738,35 @@ const Action = struct {
         }
     }
 
-    pub fn toggleQuickTerminal(self: *Application) bool {
+    fn targetWorkingDirectory(target: apprt.Target) ?[:0]const u8 {
+        return switch (target) {
+            .app => activeSurfaceWorkingDirectory(),
+            .surface => |v| v.rt_surface.surface.getPwd(),
+        };
+    }
+
+    fn activeSurfaceWorkingDirectory() ?[:0]const u8 {
+        const glist = gtk.Window.listToplevels();
+        defer glist.free();
+
+        const focused = @as(?*glib.List, glist.findCustom(
+            null,
+            findActiveWindow,
+        )) orelse return null;
+        const gtk_window: *gtk.Window = @ptrCast(@alignCast(focused.f_data orelse return null));
+        const window = gobject.ext.cast(Window, gtk_window) orelse return null;
+        const surface = window.getActiveSurface() orelse return null;
+        return surface.getPwd();
+    }
+
+    pub fn toggleQuickTerminal(self: *Application, target: apprt.Target) bool {
         const priv = self.private();
         if (!priv.winproto.supportsPopup()) return false;
 
         // Delegate to the popup manager using the "quick" profile name.
-        if (priv.popup_manager) |*pm| return pm.toggle(popupmod.quick_profile_name);
+        if (priv.popup_manager) |*pm| {
+            return pm.toggle(popupmod.quick_profile_name, targetWorkingDirectory(target));
+        }
 
         // Fallback: if popup manager isn't initialized, use legacy path.
         if (getQuickTerminalWindow()) |win| {
