@@ -242,8 +242,8 @@ struct SplitTreeTests {
         let decoded = try JSONDecoder().decode(SplitTree<MockView>.self, from: data)
 
         #expect(decoded.zoomed != nil)
-        if case .leaf(let zoomedView) = decoded.zoomed! {
-            #expect(zoomedView.id == view2.id)
+        if case .leaf(let zoomedGroup) = decoded.zoomed! {
+            #expect(zoomedGroup.activeView.id == view2.id)
         } else {
             Issue.record("unexpected node type")
         }
