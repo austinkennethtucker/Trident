@@ -4,6 +4,8 @@ import Foundation
 /// Unix domain socket server that accepts newline-delimited JSON commands
 /// and returns JSON responses. Used for programmatic control of a browser pane.
 class BrowserSocketServer {
+    static let socketDirectory = URL(fileURLWithPath: "/tmp/trident", isDirectory: true)
+
     let socketPath: String
     let paneId: UUID
     private var socketFD: Int32 = -1
@@ -25,7 +27,7 @@ class BrowserSocketServer {
         self.paneId = paneId
         // Use /tmp/trident/ instead of $TMPDIR — macOS $TMPDIR paths are
         // too long (60+ chars) and Unix socket paths are limited to 104 bytes.
-        let tmpDir = URL(fileURLWithPath: "/tmp/trident", isDirectory: true)
+        let tmpDir = Self.socketDirectory
         try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         // Use first 8 chars of UUID to keep path short
         let shortId = String(paneId.uuidString.prefix(8)).lowercased()
@@ -39,6 +41,8 @@ class BrowserSocketServer {
     // MARK: - Lifecycle
 
     func start() throws {
+        Self.removeDeadSocketFiles(excluding: socketPath)
+
         // Remove stale socket file if present
         unlink(socketPath)
 
@@ -199,6 +203,10 @@ class BrowserSocketServer {
 
     // MARK: - Command Handling
 
+    private func noActiveModelResponse() -> [String: Any] {
+        ["ok": false, "error": "no active browser model"]
+    }
+
     /// Handle a JSON command dictionary and return a response dictionary.
     /// Called on the main thread so WKWebView access is safe.
     private func handleCommand(_ command: [String: Any]) -> [String: Any] {
@@ -241,6 +249,18 @@ class BrowserSocketServer {
             let sem = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
                 self?.activeModel?.reload()
+                sem.signal()
+            }
+            sem.wait()
+            return ["ok": true]
+
+        case "stop":
+            guard let model = activeModel else {
+                return noActiveModelResponse()
+            }
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                model.stopLoading()
                 sem.signal()
             }
             sem.wait()
@@ -434,9 +454,15 @@ class BrowserSocketServer {
 
         case "proxy_set":
             let url = command["url"] as? String
+            if let url, BrowserProxyRelay.parseProxyURL(url) == nil {
+                return ["ok": false, "error": "invalid proxy URL"]
+            }
+            guard let model = activeModel else {
+                return noActiveModelResponse()
+            }
             let sem = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async { [weak self] in
-                self?.activeModel?.setProxy(url)
+            DispatchQueue.main.async {
+                model.setProxy(url)
                 sem.signal()
             }
             sem.wait()
@@ -545,5 +571,63 @@ class BrowserSocketServer {
         case pathTooLong
         case bindFailed(errno: Int32)
         case listenFailed(errno: Int32)
+    }
+}
+
+private extension BrowserSocketServer {
+    static func removeDeadSocketFiles(excluding currentPath: String) {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: socketDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        for entry in entries where entry.lastPathComponent.hasPrefix("b-") && entry.pathExtension == "sock" {
+            let path = entry.path
+            guard path != currentPath else { continue }
+            guard shouldRemoveSocket(at: path) else { continue }
+            unlink(path)
+        }
+    }
+
+    static func shouldRemoveSocket(at path: String) -> Bool {
+        var statInfo = stat()
+        if lstat(path, &statInfo) != 0 {
+            return false
+        }
+
+        if (statInfo.st_mode & S_IFMT) != S_IFSOCK {
+            return false
+        }
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = path.utf8CString.map(UInt8.init(bitPattern:))
+        withUnsafeMutableBytes(of: &addr.sun_path) { bytes in
+            bytes.copyBytes(from: pathBytes)
+        }
+        addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                connect(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if result == 0 {
+            return false
+        }
+
+        switch errno {
+        case ECONNREFUSED, ENOENT, ENOTSOCK:
+            return true
+        default:
+            return false
+        }
     }
 }
