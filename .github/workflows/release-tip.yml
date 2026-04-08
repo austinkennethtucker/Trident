@@ -245,6 +245,9 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
+      - name: Xcode Select
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
+
       - name: Xcode Version
         run: xcodebuild -version
 
@@ -451,6 +454,65 @@ jobs:
           source-dir: blob
           destination-dir: ./
 
+      - name: Verify Homebrew tap token
+        if: github.ref_name == 'main'
+        env:
+          SUBDEPTH_RELEASE_TOKEN: ${{ secrets.SUBDEPTH_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$SUBDEPTH_RELEASE_TOKEN" ]; then
+            echo "::error::SUBDEPTH_RELEASE_TOKEN is required to update subdepthtech/homebrew-trident."
+            exit 1
+          fi
+
+      - name: Resolve Homebrew cask metadata
+        id: homebrew
+        if: github.ref_name == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/tip" --jq '.assets[] | select(.name=="Trident-Dev.dmg") | .id')
+          if [ -z "$asset_id" ]; then
+            echo "::error::Could not find Trident-Dev.dmg asset ID on the tip release."
+            exit 1
+          fi
+          echo "asset_id=$asset_id" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Homebrew tap
+        if: github.ref_name == 'main'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: subdepthtech/homebrew-trident
+          ref: main
+          path: homebrew-trident
+          token: ${{ secrets.SUBDEPTH_RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Update dev Homebrew cask
+        if: github.ref_name == 'main'
+        run: |
+          python3 .github/scripts/update_homebrew_cask.py \
+            --cask-file homebrew-trident/Casks/trident-dev.rb \
+            --version "${GHOSTTY_COMMIT}" \
+            --asset-id "${{ steps.homebrew.outputs.asset_id }}" \
+            --sha256 ":no_check"
+
+      - name: Commit and push dev Homebrew cask
+        if: github.ref_name == 'main'
+        env:
+          SUBDEPTH_RELEASE_TOKEN: ${{ secrets.SUBDEPTH_RELEASE_TOKEN }}
+        run: |
+          cd homebrew-trident
+          if git diff --quiet --exit-code -- Casks/trident-dev.rb; then
+            echo "Dev cask already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/trident-dev.rb
+          git commit -m "Update trident-dev cask to ${GHOSTTY_COMMIT}"
+          git push "https://x-access-token:${SUBDEPTH_RELEASE_TOKEN}@github.com/subdepthtech/homebrew-trident.git" HEAD:main
+
       - name: Show and Save Release URLs
         if: env.HAS_R2_UPLOAD == 'true'
         run: |
@@ -500,6 +562,9 @@ jobs:
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Xcode Select
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
 
       - name: Xcode Version
         run: xcodebuild -version
@@ -685,6 +750,9 @@ jobs:
         with:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Xcode Select
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
 
       - name: Xcode Version
         run: xcodebuild -version
